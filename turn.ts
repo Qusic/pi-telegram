@@ -10,7 +10,7 @@ import { basename } from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { ImageContent, TextContent } from "@earendil-works/pi-ai";
 import { Type } from "@sinclair/typebox";
-import type { ApiManager, TelegramSentMessage } from "./api.js";
+import type { ApiManager } from "./api.js";
 import type { MediaManager, QueuedAttachment } from "./media.js";
 import type { PreviewManager } from "./preview.js";
 import type { TelegramMessage } from "./types.js";
@@ -140,7 +140,7 @@ export function createTurn(deps: TurnDeps) {
 			const argPreview = Object.entries(event.args).map(([k, v]) => `${k}=${String(v).slice(0, 100)}`).join(" ");
 			if (argPreview) label += `: ${argPreview.slice(0, 200)}`;
 		}
-		const sent = await api.call<TelegramSentMessage>("sendMessage", { chat_id: active.chatId, text: `🔧 ${label}` });
+		const sent = await api.sendText(active.chatId, `🔧 ${label}`);
 		toolMessages.set(event.toolCallId, { id: sent.message_id, label });
 	});
 
@@ -157,7 +157,7 @@ export function createTurn(deps: TurnDeps) {
 			.slice(0, 200);
 		if (entry) {
 			const text = `🔧 ${entry.label}\n${icon} ${resultPreview || "done"}`;
-			await api.call("editMessageText", { chat_id: active.chatId, message_id: entry.id, text }).catch(() => {});
+			await api.editText(active.chatId, entry.id, text).catch(() => {});
 		}
 	});
 

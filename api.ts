@@ -5,7 +5,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import type { ConfigManager } from "./config.js";
 import { mdToTelegramHtml } from "./render.js";
-import { sanitizeFileName } from "./utils.js";
+import { guessMediaType, sanitizeFileName } from "./utils.js";
 
 const TEMP_DIR = join(homedir(), ".pi", "agent", "tmp", "telegram");
 
@@ -25,9 +25,9 @@ export interface TelegramSentMessage {
 	message_id: number;
 }
 
-export type TelegramParseMode = "HTML";
+type TelegramParseMode = "HTML";
 
-export class TelegramApiError extends Error {
+class TelegramApiError extends Error {
 	readonly code: number | undefined;
 	readonly method: string;
 	constructor(message: string, code: number | undefined, method: string) {
@@ -97,16 +97,40 @@ export function createApi(config: ConfigManager) {
 	}
 
 	/** Send a short text message (caller ensures ≤ 4096 chars). Web page
-	 *  previews are disabled — model output often contains URLs we don't want
-	 *  ballooning into preview cards. */
+	 *  previews are disabled by default — model output often contains URLs we
+	 *  don't want ballooning into preview cards. Pass `disableWebPagePreview:
+	 *  false` to opt back in. */
 	async function sendText(
 		chatId: number,
 		text: string,
-		opts?: { parseMode?: TelegramParseMode },
-	): Promise<void> {
-		const body: Record<string, unknown> = { chat_id: chatId, text, disable_web_page_preview: true };
+		opts?: { parseMode?: TelegramParseMode; disableWebPagePreview?: boolean },
+	): Promise<TelegramSentMessage> {
+		const body: Record<string, unknown> = {
+			chat_id: chatId,
+			text,
+			disable_web_page_preview: opts?.disableWebPagePreview ?? true,
+		};
 		if (opts?.parseMode) body.parse_mode = opts.parseMode;
-		await call<TelegramSentMessage>("sendMessage", body);
+		return await call<TelegramSentMessage>("sendMessage", body);
+	}
+
+	/** Edit a previously-sent text message (caller ensures ≤ 4096 chars).
+	 *  Web page previews disabled by default; pass `disableWebPagePreview:
+	 *  false` to opt back in. */
+	async function editText(
+		chatId: number,
+		messageId: number,
+		text: string,
+		opts?: { parseMode?: TelegramParseMode; disableWebPagePreview?: boolean },
+	): Promise<void> {
+		const body: Record<string, unknown> = {
+			chat_id: chatId,
+			message_id: messageId,
+			text,
+			disable_web_page_preview: opts?.disableWebPagePreview ?? true,
+		};
+		if (opts?.parseMode) body.parse_mode = opts.parseMode;
+		await call("editMessageText", body);
 	}
 
 	/** Render markdown → Telegram HTML and send. On a 400 (bad entities) fall
@@ -125,5 +149,23 @@ export function createApi(config: ConfigManager) {
 		}
 	}
 
-	return { call, callMultipart, download, sendText, sendRendered };
+	/** Upload a local file as photo (if recognised image mime) or generic document. */
+	async function sendAttachment(
+		chatId: number,
+		filePath: string,
+		fileName: string,
+	): Promise<TelegramSentMessage> {
+		const mediaType = guessMediaType(filePath);
+		const method = mediaType ? "sendPhoto" : "sendDocument";
+		const fieldName = mediaType ? "photo" : "document";
+		return await callMultipart<TelegramSentMessage>(
+			method,
+			{ chat_id: String(chatId) },
+			fieldName,
+			filePath,
+			fileName,
+		);
+	}
+
+	return { call, download, sendText, editText, sendRendered, sendAttachment };
 }

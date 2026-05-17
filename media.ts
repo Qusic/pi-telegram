@@ -3,7 +3,7 @@
 
 import { readFile } from "node:fs/promises";
 import type { ImageContent, TextContent } from "@earendil-works/pi-ai";
-import type { ApiManager, TelegramSentMessage } from "./api.js";
+import type { ApiManager } from "./api.js";
 import type { TelegramMessage } from "./types.js";
 import { guessExtensionFromMime, guessMediaType, isImageMimeType } from "./utils.js";
 
@@ -114,10 +114,7 @@ export function createMedia(api: ApiManager) {
 	async function sendAttachments(chatId: number, attachments: QueuedAttachment[]): Promise<void> {
 		for (const att of attachments) {
 			try {
-				const mediaType = guessMediaType(att.path);
-				const method = mediaType ? "sendPhoto" : "sendDocument";
-				const fieldName = mediaType ? "photo" : "document";
-				await api.callMultipart<TelegramSentMessage>(method, { chat_id: String(chatId) }, fieldName, att.path, att.fileName);
+				await api.sendAttachment(chatId, att.path, att.fileName);
 			} catch (error) {
 				const message = error instanceof Error ? error.message : String(error);
 				await api.sendText(chatId, `Failed to send attachment ${att.fileName}: ${message}`);
