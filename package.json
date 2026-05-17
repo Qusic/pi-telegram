@@ -1,0 +1,20 @@
+{
+	"name": "pi-telegram",
+	"version": "1.0.0",
+	"description": "Telegram bridge extension for Pi agent",
+	"type": "module",
+	"license": "MIT",
+	"repository": {
+		"type": "git",
+		"url": "https://github.com/Qusic/pi-telegram.git"
+	},
+	"pi": {
+		"extensions": ["./index.ts"]
+	},
+	"peerDependencies": {
+		"@earendil-works/pi-ai": "*",
+		"@earendil-works/pi-agent-core": "*",
+		"@earendil-works/pi-coding-agent": "*",
+		"@sinclair/typebox": "*"
+	}
+}
