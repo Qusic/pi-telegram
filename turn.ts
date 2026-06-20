@@ -42,12 +42,11 @@ export function createTurn(deps: TurnDeps) {
 	let typingInterval: ReturnType<typeof setInterval> | undefined;
 	const toolMessages = new Map<string, { id: number; label: string }>();
 
-	function startTyping(chatId?: number): void {
-		const targetChatId = chatId ?? active?.chatId;
-		if (typingInterval || targetChatId === undefined) return;
+	function startTyping(chatId: number): void {
+		if (typingInterval) return;
 		const sendTyping = async () => {
 			try {
-				await api.call("sendChatAction", { chat_id: targetChatId, action: "typing" });
+				await api.call("sendChatAction", { chat_id: chatId, action: "typing" });
 			} catch {
 				// non-critical UX hint
 			}
@@ -170,21 +169,16 @@ export function createTurn(deps: TurnDeps) {
 		if (!turn) return;
 
 		const { stopReason, errorMessage } = extractStopReason(event.messages);
-		if (stopReason === "aborted") {
-			await preview.finalize();
-			return;
-		}
+		// Always publish whatever streamed so far, then branch on the outcome.
+		const sent = await preview.finalize();
+		if (stopReason === "aborted") return;
 		if (stopReason === "error") {
-			await preview.finalize();
 			await api.sendText(turn.chatId, errorMessage || "Telegram bridge: pi failed while processing the request.");
 			return;
 		}
-
-		const sent = await preview.finalize();
 		if (!sent && turn.queuedAttachments.length > 0) {
 			await api.sendText(turn.chatId, "Attached requested file(s).");
 		}
-
 		await media.sendAttachments(turn.chatId, turn.queuedAttachments);
 	});
 
@@ -201,7 +195,7 @@ export function createTurn(deps: TurnDeps) {
 		// it (skills are discovered by the LLM on its own).
 		pi.sendUserMessage(
 			built.content,
-			(isFresh ? { expandSkills: true } : { expandSkills: true, deliverAs: "steer" }) as any,
+			{ expandSkills: true, ...(isFresh ? {} : { deliverAs: "steer" }) } as any,
 		);
 	}
 

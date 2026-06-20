@@ -146,41 +146,28 @@ export function createApi(config: ConfigManager) {
 		return targetPath;
 	}
 
-	/** Send a short text message (caller ensures ≤ 4096 chars). Web page
-	 *  previews are disabled by default — model output often contains URLs we
-	 *  don't want ballooning into preview cards. Pass `disableWebPagePreview:
-	 *  false` to opt back in. */
-	async function sendText(
-		chatId: number,
-		text: string,
-		opts?: { parseMode?: TelegramParseMode; disableWebPagePreview?: boolean },
-	): Promise<TelegramSentMessage> {
+	type TextOpts = { parseMode?: TelegramParseMode; disableWebPagePreview?: boolean };
+
+	/** Shared body for sendMessage / editMessageText. Link previews are disabled
+	 *  by default — model output often contains URLs we don't want ballooning
+	 *  into preview cards; pass `disableWebPagePreview: false` to opt back in. */
+	function textBody(text: string, opts?: TextOpts): Record<string, unknown> {
 		const body: Record<string, unknown> = {
-			chat_id: chatId,
 			text,
-			disable_web_page_preview: opts?.disableWebPagePreview ?? true,
+			link_preview_options: { is_disabled: opts?.disableWebPagePreview ?? true },
 		};
 		if (opts?.parseMode) body.parse_mode = opts.parseMode;
-		return await call<TelegramSentMessage>("sendMessage", body);
+		return body;
 	}
 
-	/** Edit a previously-sent text message (caller ensures ≤ 4096 chars).
-	 *  Web page previews disabled by default; pass `disableWebPagePreview:
-	 *  false` to opt back in. */
-	async function editText(
-		chatId: number,
-		messageId: number,
-		text: string,
-		opts?: { parseMode?: TelegramParseMode; disableWebPagePreview?: boolean },
-	): Promise<void> {
-		const body: Record<string, unknown> = {
-			chat_id: chatId,
-			message_id: messageId,
-			text,
-			disable_web_page_preview: opts?.disableWebPagePreview ?? true,
-		};
-		if (opts?.parseMode) body.parse_mode = opts.parseMode;
-		await call("editMessageText", body);
+	/** Send a short text message (caller ensures ≤ 4096 chars). */
+	async function sendText(chatId: number, text: string, opts?: TextOpts): Promise<TelegramSentMessage> {
+		return await call<TelegramSentMessage>("sendMessage", { chat_id: chatId, ...textBody(text, opts) });
+	}
+
+	/** Edit a previously-sent text message (caller ensures ≤ 4096 chars). */
+	async function editText(chatId: number, messageId: number, text: string, opts?: TextOpts): Promise<void> {
+		await call("editMessageText", { chat_id: chatId, message_id: messageId, ...textBody(text, opts) });
 	}
 
 	/** Render markdown → Telegram HTML and send. On a 400 (bad entities) fall
