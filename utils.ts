@@ -2,6 +2,7 @@
 
 import { extname } from "node:path";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
+import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 
 export function sanitizeFileName(name: string): string {
 	return name.replace(/[^a-zA-Z0-9._-]+/g, "_");
@@ -88,4 +89,29 @@ export function extractStopReason(messages: AgentMessage[]): { stopReason?: stri
 		};
 	}
 	return {};
+}
+
+/** Answer text (text blocks only, thinking excluded) of the most recent
+ *  assistant message on a branch that produced any, or undefined. */
+export function lastAssistantText(branch: SessionEntry[]): string | undefined {
+	for (let i = branch.length - 1; i >= 0; i--) {
+		const entry = branch[i];
+		if (entry.type !== "message" || !isAssistantMessage(entry.message)) continue;
+		const text = answerText(entry.message);
+		if (text) return text;
+	}
+	return undefined;
+}
+
+/** Like getMessageText, but answer-only — thinking blocks are dropped. */
+function answerText(message: AgentMessage): string {
+	const content = (message as unknown as { content?: unknown }).content;
+	if (!Array.isArray(content)) return "";
+	return content
+		.flatMap((raw) => {
+			const block = extractBlock(raw);
+			return block?.type === "text" ? [block.body] : [];
+		})
+		.join("\n\n")
+		.trim();
 }

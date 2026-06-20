@@ -10,10 +10,10 @@
 import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import type { SessionInfo } from "@earendil-works/pi-coding-agent";
-import type { ApiManager } from "./api.js";
+import { type ApiManager, MAX_MESSAGE_LENGTH } from "./api.js";
 import type { TurnManager } from "./turn.js";
 import type { TelegramMessage } from "./types.js";
-import { formatTokens } from "./utils.js";
+import { formatTokens, lastAssistantText } from "./utils.js";
 
 export type Dispatcher = (messages: TelegramMessage[], ctx: ExtensionContext) => Promise<void>;
 
@@ -119,8 +119,19 @@ export function createDispatcher(deps: DispatcherDeps): Dispatcher {
 			const target = lastList[idx];
 			const label = (target.name || target.firstMessage).replace(/\s+/g, " ").slice(0, 80);
 			trampoline(async (cmdCtx) => {
-				const result = await cmdCtx.switchSession(target.path);
-				await reply(result.cancelled ? "Resume cancelled." : `\u2713 Resumed: ${label}`);
+				// Within the resumed session's context, grab its last reply to mirror to the chat.
+				let recap: string | undefined;
+				const result = await cmdCtx.switchSession(target.path, {
+					withSession: async (newCtx) => {
+						recap = lastAssistantText(newCtx.sessionManager.getBranch());
+					},
+				});
+				if (result.cancelled) {
+					await reply("Resume cancelled.");
+					return;
+				}
+				await reply(`\u2713 Resumed: ${label}`);
+				if (recap) await api.sendRendered(firstMessage.chat.id, truncateRecap(recap));
 			});
 			return;
 		}
@@ -160,6 +171,13 @@ export function createDispatcher(deps: DispatcherDeps): Dispatcher {
 		// Default: forward as a regular agent turn.
 		await turn.handleIncoming(messages, ctx);
 	};
+}
+
+// Keep the tail (the conclusion matters most) and flag the cut; full history is in the TUI.
+function truncateRecap(text: string): string {
+	if (text.length <= MAX_MESSAGE_LENGTH) return text;
+	const notice = "…(truncated — open the TUI for full history)\n\n";
+	return notice + text.slice(-(MAX_MESSAGE_LENGTH - notice.length)).trimStart();
 }
 
 function buildStatusReport(ctx: ExtensionContext): string {
