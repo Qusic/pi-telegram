@@ -15,7 +15,7 @@
 
 import type { ApiManager } from "./api.js";
 
-const PREVIEW_THROTTLE_MS = 750;
+const PREVIEW_THROTTLE_MS = 1500;
 const MAX_MESSAGE_LENGTH = 4096;
 
 interface TelegramPreviewState {
