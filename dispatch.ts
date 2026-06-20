@@ -101,14 +101,14 @@ export function createDispatcher(deps: DispatcherDeps): Dispatcher {
 				const marker = s.path === currentFile ? "\u25cf " : "  ";
 				const date = s.modified.toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
 				const title = (s.name || s.firstMessage).replace(/\s+/g, " ").slice(0, 60);
-				return `${marker}${i + 1}. [${date}] ${title} (${s.messageCount})`;
+				return `${marker}/resume${i + 1} [${date}] ${title} (${s.messageCount})`;
 			});
-			lines.unshift("Sessions (use /resume <n> to switch):");
+			lines.unshift("Sessions (tap to resume):");
 			await reply(lines.join("\n"));
 			return;
 		}
 
-		const resumeMatch = lower.match(/^\/resume\s+(\d+)$/);
+		const resumeMatch = lower.match(/^\/resume\s*(\d+)$/);
 		if (resumeMatch) {
 			if (!await requireIdle("resume")) return;
 			const idx = parseInt(resumeMatch[1], 10) - 1;
