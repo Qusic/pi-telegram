@@ -21,11 +21,13 @@ Auto-published as the bot menu at boot. Anything else is forwarded to pi as a us
 | Command    | Description                                  |
 | ---------- | -------------------------------------------- |
 | `/new`     | Start a new pi session                       |
-| `/resume`  | List recent sessions (`/resume <n>` to pick) |
+| `/resume`  | List recent sessions; `/resumeN` to switch   |
 | `/stop`    | Abort the current turn                       |
 | `/status`  | Model, token usage, cost and context window  |
 | `/compact` | Compact the conversation                     |
 | `/skills`  | List skills available to the agent           |
+
+Resuming a session echoes that session's last reply back to the chat, so it reflects where you left off (the TUI already shows the full history).
 
 ## Differences vs. upstream `badlogic/pi-telegram`
 
