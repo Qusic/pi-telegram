@@ -1,10 +1,17 @@
 // Streaming preview / draft management.
 //
 // Caller pushes the full accumulated assistant text via update(); finalize()
-// publishes whatever is buffered. When pendingText exceeds 4096, a head is
-// promoted to a real message and the tail continues streaming as a draft.
+// publishes whatever is buffered. When the buffered tail exceeds 4096, a head
+// is promoted to a real message and the remainder keeps streaming as a draft.
 //
-// Invariant: fullText === publishedPrefix + pendingText.
+// Concurrency: update() is synchronous and only ever GROWS `fullText`
+// (assistant output is append-only). All async work (draft sends, promotions,
+// finalize) runs through a single serialized `enqueue` chain so two operations
+// can never mutate the same state concurrently — that race was the source of
+// duplicated commits and dropped tails on long outputs. Because update() is
+// append-only, every serialized task re-derives the pending tail from
+// `fullText.slice(publishedPrefix.length)` at point-of-use, so an update()
+// landing between awaits can never corrupt the invariant.
 
 import type { ApiManager } from "./api.js";
 
@@ -13,10 +20,15 @@ const MAX_MESSAGE_LENGTH = 4096;
 
 interface TelegramPreviewState {
 	chatId: number;
+	/** Entire accumulated assistant text seen so far (monotonically grows). */
+	fullText: string;
+	/** Prefix already committed as real messages. */
 	publishedPrefix: string;
-	pendingText: string;
-	draftId?: number;
+	/** Last text pushed to the live draft (dedup guard). */
 	lastSentText: string;
+	/** True once anything has been committed as a real message. */
+	published: boolean;
+	draftId?: number;
 	flushTimer?: ReturnType<typeof setTimeout>;
 }
 
@@ -38,6 +50,23 @@ function findSplitPoint(text: string, maxLen: number): number {
 export function createPreview(api: ApiManager) {
 	let current: TelegramPreviewState | undefined;
 
+	// Single-writer queue: every async preview op runs strictly one at a time,
+	// in FIFO order, so flush/promote/finalize never overlap. A failed task
+	// never poisons the chain (its rejection is swallowed for chain purposes
+	// but still surfaced to the original caller).
+	let chain: Promise<unknown> = Promise.resolve();
+	function enqueue<T>(task: () => Promise<T>): Promise<T> {
+		// `chain` is kept non-rejecting (the .catch below), so a plain .then runs
+		// tasks strictly one at a time, in FIFO order.
+		const next = chain.then(task);
+		chain = next.catch(() => {});
+		return next;
+	}
+
+	function pendingTail(c: TelegramPreviewState): string {
+		return c.fullText.slice(c.publishedPrefix.length);
+	}
+
 	async function deleteDraft(c: TelegramPreviewState): Promise<void> {
 		if (c.draftId === undefined) return;
 		try {
@@ -48,40 +77,43 @@ export function createPreview(api: ApiManager) {
 		c.draftId = undefined;
 	}
 
-	/** Promote oversized pendingText into one or more real messages until it fits. */
+	/** Promote the oversized tail into one or more real messages until it fits.
+	 *  Re-derives the tail from `fullText` each iteration so a concurrent
+	 *  update() (which only appends) is absorbed safely. */
 	async function promoteOversized(c: TelegramPreviewState): Promise<void> {
-		while (c.pendingText.length > MAX_MESSAGE_LENGTH) {
-			const splitAt = findSplitPoint(c.pendingText, MAX_MESSAGE_LENGTH);
-			const head = c.pendingText.slice(0, splitAt);
+		let tail = pendingTail(c);
+		while (tail.length > MAX_MESSAGE_LENGTH) {
+			const splitAt = findSplitPoint(tail, MAX_MESSAGE_LENGTH);
+			const head = tail.slice(0, splitAt);
 			await deleteDraft(c);
 			await api.sendRendered(c.chatId, head);
 			c.publishedPrefix += head;
-			c.pendingText = c.pendingText.slice(splitAt);
+			c.published = true;
 			c.lastSentText = "";
+			tail = pendingTail(c);
 		}
 	}
 
-	/** Replace pendingText with the latest tail and schedule a throttled flush. */
+	/** Replace the accumulated text and schedule a throttled flush. */
 	function update(chatId: number, fullText: string): void {
-		if (!current) {
-			current = { chatId, publishedPrefix: "", pendingText: fullText, lastSentText: "" };
+		if (!current || current.chatId !== chatId) {
+			current = { chatId, fullText, publishedPrefix: "", lastSentText: "", published: false };
 		} else {
-			current.pendingText = fullText.slice(current.publishedPrefix.length);
+			current.fullText = fullText;
 		}
-		if (!current.flushTimer) {
-			current.flushTimer = setTimeout(() => { void flush(); }, PREVIEW_THROTTLE_MS);
+		const c = current;
+		if (!c.flushTimer) {
+			c.flushTimer = setTimeout(() => {
+				c.flushTimer = undefined;
+				// Skip if this state was already finalized/replaced.
+				void enqueue(() => (current === c ? flushState(c) : Promise.resolve())).catch(() => {});
+			}, PREVIEW_THROTTLE_MS);
 		}
 	}
 
-	async function flush(): Promise<void> {
-		const c = current;
-		if (!c) return;
-		if (c.flushTimer) {
-			clearTimeout(c.flushTimer);
-			c.flushTimer = undefined;
-		}
+	async function flushState(c: TelegramPreviewState): Promise<void> {
 		await promoteOversized(c);
-		const text = c.pendingText.trim();
+		const text = pendingTail(c).trim();
 		if (!text || text === c.lastSentText) return;
 		const draftId = c.draftId ?? Date.now();
 		c.draftId = draftId;
@@ -89,22 +121,31 @@ export function createPreview(api: ApiManager) {
 		c.lastSentText = text;
 	}
 
+	async function finalizeState(c: TelegramPreviewState): Promise<boolean> {
+		await promoteOversized(c);
+		const text = pendingTail(c).trim();
+		await deleteDraft(c);
+		if (!text) return c.published;
+		await api.sendRendered(c.chatId, text);
+		c.publishedPrefix = c.fullText;
+		c.published = true;
+		return true;
+	}
+
 	/** Publish any buffered text and reset. Returns true iff anything was
-	 *  published over the preview's lifetime (including promoted chunks). */
-	async function finalize(): Promise<boolean> {
+	 *  committed as a real message over the preview's lifetime. Never rejects —
+	 *  a transient send failure must not break the turn lifecycle. */
+	function finalize(): Promise<boolean> {
 		const c = current;
-		if (!c) return false;
+		if (!c) return Promise.resolve(false);
 		if (c.flushTimer) {
 			clearTimeout(c.flushTimer);
 			c.flushTimer = undefined;
 		}
+		// Detach synchronously so any queued flush for this state no-ops and a
+		// subsequent assistant message starts a fresh preview.
 		current = undefined;
-		await promoteOversized(c);
-		const text = c.pendingText.trim();
-		await deleteDraft(c);
-		if (!text) return c.publishedPrefix.length > 0;
-		await api.sendRendered(c.chatId, text);
-		return true;
+		return enqueue(() => finalizeState(c)).catch(() => c.published);
 	}
 
 	return { update, finalize };
