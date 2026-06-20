@@ -14,6 +14,28 @@ interface TelegramApiResponse<T> {
 	result?: T;
 	description?: string;
 	error_code?: number;
+	parameters?: { retry_after?: number };
+}
+
+function abortError(): Error {
+	const err = new Error("aborted");
+	err.name = "AbortError";
+	return err;
+}
+
+function delay(ms: number, signal?: AbortSignal): Promise<void> {
+	return new Promise((resolve, reject) => {
+		if (signal?.aborted) return reject(abortError());
+		const timer = setTimeout(() => {
+			signal?.removeEventListener("abort", onAbort);
+			resolve();
+		}, ms);
+		function onAbort() {
+			clearTimeout(timer);
+			reject(abortError());
+		}
+		signal?.addEventListener("abort", onAbort, { once: true });
+	});
 }
 
 interface TelegramGetFileResult {
@@ -43,22 +65,56 @@ export function createApi(config: ConfigManager) {
 	const baseUrl = `https://api.telegram.org/bot${config.get().botToken}/`;
 	const fileBaseUrl = `https://api.telegram.org/file/bot${config.get().botToken}/`;
 
+	// POST to the Bot API with shared retry on 429 / 5xx / network errors.
+	// Pass a plain object for the common JSON call, or a request factory
+	// (re-invoked per attempt — a consumed body can't be replayed) for non-JSON
+	// calls like multipart uploads.
+	//
+	// Telegram per-chat rate limits (HTTP 429) are routine when streaming long
+	// answers (each promoted chunk + draft is a separate request); retrying them
+	// — and transient 5xx / network blips — keeps a rejection from stalling the
+	// live draft and dropping the final message.
 	async function call<T>(
 		method: string,
-		body: Record<string, unknown>,
+		body: Record<string, unknown> | (() => Promise<Response>),
 		opts?: { signal?: AbortSignal },
 	): Promise<T> {
-		const response = await fetch(baseUrl + method, {
-			method: "POST",
-			headers: { "content-type": "application/json" },
-			body: JSON.stringify(body),
-			signal: opts?.signal,
-		});
-		const data = (await response.json()) as TelegramApiResponse<T>;
-		if (!data.ok || data.result === undefined) {
-			throw new TelegramApiError(data.description || `Telegram API ${method} failed`, data.error_code, method);
+		const signal = opts?.signal;
+		const makeRequest = typeof body === "function"
+			? body
+			: () => fetch(baseUrl + method, {
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify(body),
+				signal,
+			});
+
+		const MAX_RETRIES = 5;
+		const MAX_BACKOFF_MS = 15_000;
+		// Exponential backoff (capped) for retry attempt `n` (0-based).
+		const backoff = (n: number) => Math.min(2 ** n * 500, MAX_BACKOFF_MS);
+		for (let attempt = 0; ; attempt++) {
+			let response: Response;
+			try {
+				response = await makeRequest();
+			} catch (err) {
+				// Network error: retry unless aborted or out of attempts.
+				if (signal?.aborted || attempt >= MAX_RETRIES) throw err;
+				await delay(backoff(attempt), signal);
+				continue;
+			}
+			const data = (await response.json()) as TelegramApiResponse<T>;
+			if (data.ok && data.result !== undefined) return data.result;
+
+			const code = data.error_code;
+			const retriable = code === 429 || (code !== undefined && code >= 500);
+			if (retriable && !signal?.aborted && attempt < MAX_RETRIES) {
+				const retryAfter = data.parameters?.retry_after;
+				await delay(retryAfter !== undefined ? retryAfter * 1000 + 250 : backoff(attempt), signal);
+				continue;
+			}
+			throw new TelegramApiError(data.description || `Telegram API ${method} failed`, code, method);
 		}
-		return data.result;
 	}
 
 	async function callMultipart<T>(
@@ -69,20 +125,14 @@ export function createApi(config: ConfigManager) {
 		fileName: string,
 		opts?: { signal?: AbortSignal },
 	): Promise<T> {
-		const form = new FormData();
-		for (const [key, value] of Object.entries(fields)) form.set(key, value);
-		const buffer = await readFile(filePath);
-		form.set(fileField, new Blob([buffer]), fileName);
-		const response = await fetch(baseUrl + method, {
-			method: "POST",
-			body: form,
-			signal: opts?.signal,
-		});
-		const data = (await response.json()) as TelegramApiResponse<T>;
-		if (!data.ok || data.result === undefined) {
-			throw new TelegramApiError(data.description || `Telegram API ${method} failed`, data.error_code, method);
-		}
-		return data.result;
+		// Read once; rebuild the FormData per attempt (a consumed body can't be reused).
+		const blob = new Blob([await readFile(filePath)]);
+		return call<T>(method, () => {
+			const form = new FormData();
+			for (const [key, value] of Object.entries(fields)) form.set(key, value);
+			form.set(fileField, blob, fileName);
+			return fetch(baseUrl + method, { method: "POST", body: form, signal: opts?.signal });
+		}, opts);
 	}
 
 	async function download(fileId: string, suggestedName: string): Promise<string> {
