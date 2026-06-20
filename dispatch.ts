@@ -101,7 +101,7 @@ export function createDispatcher(deps: DispatcherDeps): Dispatcher {
 				const marker = s.path === currentFile ? "\u25cf " : "  ";
 				const date = s.modified.toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
 				const title = (s.name || s.firstMessage).replace(/\s+/g, " ").slice(0, 60);
-				return `${marker}${i + 1}. [${date}] ${s.messageCount}msg \u2014 ${title}`;
+				return `${marker}${i + 1}. [${date}] ${title} (${s.messageCount})`;
 			});
 			lines.unshift("Sessions (use /resume <n> to switch):");
 			await reply(lines.join("\n"));
