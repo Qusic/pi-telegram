@@ -13,10 +13,9 @@
 // `fullText.slice(publishedPrefix.length)` at point-of-use, so an update()
 // landing between awaits can never corrupt the invariant.
 
-import type { ApiManager } from "./api.js";
+import { type ApiManager, MAX_MESSAGE_LENGTH } from "./api.js";
 
 const PREVIEW_THROTTLE_MS = 1500;
-const MAX_MESSAGE_LENGTH = 4096;
 
 interface TelegramPreviewState {
 	chatId: number;

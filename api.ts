@@ -9,6 +9,9 @@ import { guessMediaType, sanitizeFileName } from "./utils.js";
 
 const TEMP_DIR = join(homedir(), ".pi", "agent", "tmp", "telegram");
 
+/** Telegram's hard limit on a single message's text length. */
+export const MAX_MESSAGE_LENGTH = 4096;
+
 interface TelegramApiResponse<T> {
 	ok: boolean;
 	result?: T;
@@ -160,19 +163,19 @@ export function createApi(config: ConfigManager) {
 		return body;
 	}
 
-	/** Send a short text message (caller ensures ≤ 4096 chars). */
+	/** Send a short text message (caller ensures ≤ MAX_MESSAGE_LENGTH chars). */
 	async function sendText(chatId: number, text: string, opts?: TextOpts): Promise<TelegramSentMessage> {
 		return await call<TelegramSentMessage>("sendMessage", { chat_id: chatId, ...textBody(text, opts) });
 	}
 
-	/** Edit a previously-sent text message (caller ensures ≤ 4096 chars). */
+	/** Edit a previously-sent text message (caller ensures ≤ MAX_MESSAGE_LENGTH chars). */
 	async function editText(chatId: number, messageId: number, text: string, opts?: TextOpts): Promise<void> {
 		await call("editMessageText", { chat_id: chatId, message_id: messageId, ...textBody(text, opts) });
 	}
 
 	/** Render markdown → Telegram HTML and send. On a 400 (bad entities) fall
 	 *  back to sending the ORIGINAL markdown as plain text — not the HTML,
-	 *  which may exceed 4096 chars due to tag overhead. */
+	 *  which may exceed MAX_MESSAGE_LENGTH due to tag overhead. */
 	async function sendRendered(chatId: number, markdown: string): Promise<void> {
 		const html = mdToTelegramHtml(markdown);
 		try {
