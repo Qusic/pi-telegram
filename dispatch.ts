@@ -83,7 +83,7 @@ export function createDispatcher(deps: DispatcherDeps): Dispatcher {
 			if (!await requireIdle("start new session")) return;
 			trampoline(async (cmdCtx) => {
 				const result = await cmdCtx.newSession();
-				await reply(result.cancelled ? "New session cancelled." : "\u2713 New session started.");
+				await reply(result.cancelled ? "New session cancelled." : "✅ New session started.");
 			});
 			return;
 		}
@@ -98,13 +98,12 @@ export function createDispatcher(deps: DispatcherDeps): Dispatcher {
 				return;
 			}
 			const lines = lastList.map((s, i) => {
-				const marker = s.path === currentFile ? "\u25cf " : "  ";
+				const marker = s.path === currentFile ? "● " : "";
 				const date = s.modified.toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
 				const title = (s.name || s.firstMessage).replace(/\s+/g, " ").slice(0, 60);
-				return `${marker}/resume${i + 1} [${date}] ${title} (${s.messageCount})`;
+				return `- ${marker}/resume${i + 1} — ${code(title)} · ${s.messageCount} msg · ${date}`;
 			});
-			lines.unshift("Sessions (tap to resume):");
-			await reply(lines.join("\n"));
+			await reply(section("**Sessions** — tap to switch", lines));
 			return;
 		}
 
@@ -130,7 +129,7 @@ export function createDispatcher(deps: DispatcherDeps): Dispatcher {
 					await reply("Resume cancelled.");
 					return;
 				}
-				await reply(`\u2713 Resumed: ${label}`);
+				await reply(`✅ Resumed: ${code(label)}`);
 				if (recap) await api.sendText(firstMessage.chat.id, truncateRecap(recap));
 			});
 			return;
@@ -150,21 +149,21 @@ export function createDispatcher(deps: DispatcherDeps): Dispatcher {
 		if (lower === "/compact") {
 			if (!await requireIdle("compact")) return;
 			ctx.compact({
-				onComplete: () => { void reply("Compaction completed."); },
+				onComplete: () => { void reply("✅ Compaction completed."); },
 				onError: (error) => {
 					const message = error instanceof Error ? error.message : String(error);
-					void reply(`Compaction failed: ${message}`);
+					void reply(`⚠️ Compaction failed: ${message}`);
 				},
 			});
-			await reply("Compaction started.");
+			await reply("⏳ Compaction started…");
 			return;
 		}
 
 		if (lower === "/skills") {
 			const skills = pi.getCommands()
 				.filter((cmd) => cmd.source === "skill")
-				.map((cmd) => `/${cmd.name} \u2014 ${cmd.description || "no description"}`);
-			await reply(skills.length > 0 ? skills.join("\n") : "No skills available.");
+				.map((cmd) => `- /${cmd.name} — ${cmd.description || "no description"}`);
+			await reply(skills.length > 0 ? section("**Skills**", skills) : "No skills available.");
 			return;
 		}
 
@@ -180,6 +179,17 @@ function truncateRecap(text: string): string {
 	return notice + text.slice(-(MAX_MESSAGE_LENGTH - notice.length)).trimStart();
 }
 
+// Inline-code dynamic text (model ids, titles, costs) so Rich Message markdown
+// can't mis-parse it; backticks are neutralized.
+function code(text: string): string {
+	return "`" + text.replaceAll("`", "ʼ") + "`";
+}
+
+/** A titled message: heading, blank line, then body lines. */
+function section(heading: string, body: string[]): string {
+	return [heading, "", ...body].join("\n");
+}
+
 function buildStatusReport(ctx: ExtensionContext): string {
 	let totalInput = 0, totalOutput = 0, totalCacheRead = 0, totalCacheWrite = 0, totalCost = 0;
 	for (const entry of ctx.sessionManager.getEntries()) {
@@ -191,22 +201,22 @@ function buildStatusReport(ctx: ExtensionContext): string {
 		totalCost += entry.message.usage.cost.total;
 	}
 	const usage = ctx.getContextUsage();
-	const lines: string[] = [];
-	if (ctx.model) lines.push(`Model: ${ctx.model.provider}/${ctx.model.id}`);
+	const rows: string[] = [];
+	if (ctx.model) rows.push(`- **Model** — ${code(`${ctx.model.provider}/${ctx.model.id}`)}`);
 	const tokenParts: string[] = [];
 	if (totalInput) tokenParts.push(`↑${formatTokens(totalInput)}`);
 	if (totalOutput) tokenParts.push(`↓${formatTokens(totalOutput)}`);
 	if (totalCacheRead) tokenParts.push(`R${formatTokens(totalCacheRead)}`);
 	if (totalCacheWrite) tokenParts.push(`W${formatTokens(totalCacheWrite)}`);
-	if (tokenParts.length > 0) lines.push(`Usage: ${tokenParts.join(" ")}`);
+	if (tokenParts.length > 0) rows.push(`- **Tokens** — ${tokenParts.join(" ")}`);
 	const usingSubscription = ctx.model ? ctx.modelRegistry.isUsingOAuth(ctx.model) : false;
-	if (totalCost || usingSubscription) lines.push(`Cost: $${totalCost.toFixed(3)}${usingSubscription ? " (sub)" : ""}`);
+	if (totalCost || usingSubscription) rows.push(`- **Cost** — ${code(`$${totalCost.toFixed(3)}`)}${usingSubscription ? " · sub" : ""}`);
 	if (usage) {
 		const contextWindow = usage.contextWindow ?? ctx.model?.contextWindow ?? 0;
 		const percent = usage.percent !== null ? `${usage.percent.toFixed(1)}%` : "?";
-		lines.push(`Context: ${percent}/${formatTokens(contextWindow)}`);
+		rows.push(`- **Context** — ${percent} / ${formatTokens(contextWindow)}`);
 	} else {
-		lines.push("Context: unknown");
+		rows.push("- **Context** — unknown");
 	}
-	return lines.length === 0 ? "No usage data yet." : lines.join("\n");
+	return rows.length === 0 ? "No usage data yet." : section("**Status**", rows);
 }
