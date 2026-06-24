@@ -9,7 +9,7 @@ A Telegram DM bridge for [pi](https://pi.dev) — chat with your pi coding agent
 - **Markdown rendering** to native Telegram formatting (headings, bold, italics, links, inline & fenced code, blockquotes, lists, tables, task lists, footnotes, LaTeX), robust to partial mid-stream snippets
 - **Attachments in**: photos, albums, documents, video, audio, voice, animations and stickers; images are inlined as image inputs, everything else is referenced by local path
 - **Attachments out**: a `telegram_attach` tool lets the agent send generated files with its reply
-- **Tool call breadcrumbs**: each tool call posts a `🔧 …` message, edited in place with ✅ / ❌ and a result preview
+- **Tool call breadcrumbs**: each tool call posts a `🔧 …` Rich Message with its arguments and output in collapsible blocks, edited in place to ✅ / ❌ on completion
 - **Mid-turn steering**: messages sent while the agent is busy are injected into the running turn
 - **Typing indicator** while the agent is working
 - **Single-user authorization** by Telegram user id
@@ -41,7 +41,7 @@ Resuming a session echoes that session's last reply back to the chat, so it refl
 | Prompt prefix         | Each message prefixed with `[telegram]`, plus a system-prompt suffix            | Forwarded as-is                                                                                            |
 | Rendering             | Plain text only; URL preview cards enabled                                      | Native Rich Message (`sendRichMessage`, GitHub-Flavored Markdown) for every outgoing message                |
 | Streaming             | Probes `sendMessageDraft`, falls back to `sendMessage` + `editMessageText`; previews truncated at 4096 chars, full answer only appears at `agent_end` | `sendRichMessageDraft` live previews committed with `sendRichMessage`; oversized previews are promoted into real messages mid-stream so long answers grow live |
-| Tool call breadcrumbs | None                                                                            | `🔧 …` per tool call, edited with the result                                                               |
+| Tool call breadcrumbs | None                                                                            | `🔧 …` Rich Message per tool call: summary line plus collapsible arguments + output, edited with ✅ / ❌                  |
 | Thinking blocks       | Stripped                                                                        | Streamed, separated by 💭 / ✏️ markers                                                                     |
 | Status bar            | Rich colored status                                                             | Only transient polling errors                                                                              |
 

@@ -13,6 +13,7 @@ import { Type } from "@sinclair/typebox";
 import type { ApiManager } from "./api.js";
 import type { MediaManager, QueuedAttachment } from "./media.js";
 import type { PreviewManager } from "./preview.js";
+import { type ResultBlock, type ToolArgs, renderToolEnd, renderToolStart } from "./toolcall.js";
 import type { TelegramMessage } from "./types.js";
 import { extractStopReason, getMessageText, isAssistantMessage } from "./utils.js";
 
@@ -40,7 +41,9 @@ export function createTurn(deps: TurnDeps) {
 	let active: TelegramTurn | undefined;
 	let currentAbort: (() => void) | undefined;
 	let typingInterval: ReturnType<typeof setInterval> | undefined;
-	const toolMessages = new Map<string, { id: number; label: string }>();
+	// toolCallId → its breadcrumb message id and the args from tool_execution_start
+	// (the end event omits args, so we stash them to re-render the finished card).
+	const toolMessages = new Map<string, { id: number; toolName: string; args: ToolArgs }>();
 
 	function startTyping(chatId: number): void {
 		if (typingInterval) return;
@@ -109,6 +112,7 @@ export function createTurn(deps: TurnDeps) {
 		pending = undefined;
 		active = undefined;
 		currentAbort = undefined;
+		toolMessages.clear();
 		stopTyping();
 	});
 
@@ -134,30 +138,19 @@ export function createTurn(deps: TurnDeps) {
 		if (!active) return;
 		// Finalize first so pre-tool text doesn't end up below the 🔧 message.
 		await preview.finalize();
-		let label = `${event.toolName}`;
-		if (event.args) {
-			const argPreview = Object.entries(event.args).map(([k, v]) => `${k}=${String(v).slice(0, 100)}`).join(" ");
-			if (argPreview) label += `: ${argPreview.slice(0, 200)}`;
-		}
-		const sent = await api.sendText(active.chatId, `🔧 ${label}`);
-		toolMessages.set(event.toolCallId, { id: sent.message_id, label });
+		const args = event.args as ToolArgs;
+		const sent = await api.sendText(active.chatId, renderToolStart(event.toolName, args));
+		toolMessages.set(event.toolCallId, { id: sent.message_id, toolName: event.toolName, args });
 	});
 
 	pi.on("tool_execution_end", async (event) => {
 		if (!active) return;
 		const entry = toolMessages.get(event.toolCallId);
 		toolMessages.delete(event.toolCallId);
-		const icon = event.isError ? "❌" : "✅";
-		const blocks = (Array.isArray(event.result?.content) ? event.result.content : []) as Array<{ type: string; text?: string }>;
-		const resultPreview = blocks
-			.filter((b) => b.type === "text" && typeof b.text === "string")
-			.map((b) => b.text!)
-			.join(" ")
-			.slice(0, 200);
-		if (entry) {
-			const text = `🔧 ${entry.label}\n${icon} ${resultPreview || "done"}`;
-			await api.editText(active.chatId, entry.id, text).catch(() => {});
-		}
+		if (!entry) return;
+		const blocks = (Array.isArray(event.result?.content) ? event.result.content : []) as ResultBlock[];
+		const text = renderToolEnd(entry.toolName, entry.args, blocks, event.isError);
+		await api.editText(active.chatId, entry.id, text).catch(() => {});
 	});
 
 	pi.on("agent_end", async (event, _ctx) => {
@@ -166,6 +159,8 @@ export function createTurn(deps: TurnDeps) {
 		stopTyping();
 		active = undefined;
 		pending = undefined;
+		// Drop any breadcrumbs whose tool never reported an end (e.g. aborted mid-run).
+		toolMessages.clear();
 		if (!turn) return;
 
 		const { stopReason, errorMessage } = extractStopReason(event.messages);
