@@ -6,7 +6,7 @@ A Telegram DM bridge for [pi](https://pi.dev) — chat with your pi coding agent
 
 - **Two-way Telegram ↔ pi bridge** over long-polling `getUpdates`
 - **Streamed replies** with live previews, including extended thinking (separated from the answer by 💭 / ✏️ markers); long answers grow incrementally instead of only appearing at the end
-- **Markdown rendering** to native Telegram formatting (bold, italics, links, inline code, fenced code blocks, blockquotes), robust to partial mid-stream snippets
+- **Markdown rendering** to native Telegram formatting (headings, bold, italics, links, inline & fenced code, blockquotes, lists, tables, task lists, footnotes, LaTeX), robust to partial mid-stream snippets
 - **Attachments in**: photos, albums, documents, video, audio, voice, animations and stickers; images are inlined as image inputs, everything else is referenced by local path
 - **Attachments out**: a `telegram_attach` tool lets the agent send generated files with its reply
 - **Tool call breadcrumbs**: each tool call posts a `🔧 …` message, edited in place with ✅ / ❌ and a result preview
@@ -39,13 +39,13 @@ Resuming a session echoes that session's last reply back to the chat, so it refl
 | Concurrency           | Extra messages while busy are queued and dispatched after the current turn ends | Extra messages are steered into the running turn                                                           |
 | Aborted-turn replay   | After `stop`, queued messages are re-injected as a synthetic history block      | No replay — `stop` just aborts                                                                             |
 | Prompt prefix         | Each message prefixed with `[telegram]`, plus a system-prompt suffix            | Forwarded as-is                                                                                            |
-| Rendering             | Plain text only; URL preview cards enabled                                      | Markdown → Telegram HTML, plain-text retry on 400; URL preview cards disabled                              |
-| Streaming             | Probes `sendMessageDraft`, falls back to `sendMessage` + `editMessageText`; previews truncated at 4096 chars, full answer only appears at `agent_end` | `sendMessageDraft` only; oversized previews are promoted into real messages mid-stream so long answers grow live |
+| Rendering             | Plain text only; URL preview cards enabled                                      | Native Rich Message (`sendRichMessage`, GitHub-Flavored Markdown) for every outgoing message                |
+| Streaming             | Probes `sendMessageDraft`, falls back to `sendMessage` + `editMessageText`; previews truncated at 4096 chars, full answer only appears at `agent_end` | `sendRichMessageDraft` live previews committed with `sendRichMessage`; oversized previews are promoted into real messages mid-stream so long answers grow live |
 | Tool call breadcrumbs | None                                                                            | `🔧 …` per tool call, edited with the result                                                               |
 | Thinking blocks       | Stripped                                                                        | Streamed, separated by 💭 / ✏️ markers                                                                     |
 | Status bar            | Rich colored status                                                             | Only transient polling errors                                                                              |
 
-Media-group debouncing, the `telegram_attach` tool surface and the 4096-char chunking match upstream. Internally the fork is split into small manager closures instead of a single file.
+Media-group debouncing and the `telegram_attach` tool surface match upstream. Internally the fork is split into small manager closures instead of a single file.
 
 ## Install
 

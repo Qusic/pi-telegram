@@ -4,13 +4,12 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import type { ConfigManager } from "./config.js";
-import { mdToTelegramHtml } from "./render.js";
 import { guessMediaType, sanitizeFileName } from "./utils.js";
 
 const TEMP_DIR = join(homedir(), ".pi", "agent", "tmp", "telegram");
 
-/** Telegram's hard limit on a single message's text length. */
-export const MAX_MESSAGE_LENGTH = 4096;
+/** Telegram's per-message character budget. */
+export const MAX_MESSAGE_LENGTH = 32768;
 
 interface TelegramApiResponse<T> {
 	ok: boolean;
@@ -45,21 +44,9 @@ interface TelegramGetFileResult {
 	file_path: string;
 }
 
-/** Response shape for sendMessage / sendPhoto / sendDocument / editMessageText etc. */
+/** Response shape for sendRichMessage / sendPhoto / sendDocument etc. */
 export interface TelegramSentMessage {
 	message_id: number;
-}
-
-type TelegramParseMode = "HTML";
-
-class TelegramApiError extends Error {
-	readonly code: number | undefined;
-	readonly method: string;
-	constructor(message: string, code: number | undefined, method: string) {
-		super(message);
-		this.code = code;
-		this.method = method;
-	}
 }
 
 export type ApiManager = ReturnType<typeof createApi>;
@@ -116,7 +103,7 @@ export function createApi(config: ConfigManager) {
 				await delay(retryAfter !== undefined ? retryAfter * 1000 + 250 : backoff(attempt), signal);
 				continue;
 			}
-			throw new TelegramApiError(data.description || `Telegram API ${method} failed`, code, method);
+			throw new Error(data.description || `Telegram API ${method} failed`);
 		}
 	}
 
@@ -149,43 +136,48 @@ export function createApi(config: ConfigManager) {
 		return targetPath;
 	}
 
-	type TextOpts = { parseMode?: TelegramParseMode; disableWebPagePreview?: boolean };
-
-	/** Shared body for sendMessage / editMessageText. Link previews are disabled
-	 *  by default — model output often contains URLs we don't want ballooning
-	 *  into preview cards; pass `disableWebPagePreview: false` to opt back in. */
-	function textBody(text: string, opts?: TextOpts): Record<string, unknown> {
-		const body: Record<string, unknown> = {
-			text,
-			link_preview_options: { is_disabled: opts?.disableWebPagePreview ?? true },
-		};
-		if (opts?.parseMode) body.parse_mode = opts.parseMode;
-		return body;
+	/** Send markdown as a native Rich Message, returning the sent message so callers
+	 *  can edit it later. Plain strings are valid markdown too, so this is also the
+	 *  channel for short system/status replies. */
+	async function sendText(chatId: number, markdown: string): Promise<TelegramSentMessage> {
+		return await call<TelegramSentMessage>("sendRichMessage", {
+			chat_id: chatId,
+			rich_message: { markdown },
+		});
 	}
 
-	/** Send a short text message (caller ensures ≤ MAX_MESSAGE_LENGTH chars). */
-	async function sendText(chatId: number, text: string, opts?: TextOpts): Promise<TelegramSentMessage> {
-		return await call<TelegramSentMessage>("sendMessage", { chat_id: chatId, ...textBody(text, opts) });
+	/** Edit a message in place with new Rich Message content (markdown as-is). */
+	async function editText(chatId: number, messageId: number, markdown: string): Promise<void> {
+		await call("editMessageText", {
+			chat_id: chatId,
+			message_id: messageId,
+			rich_message: { markdown },
+		});
 	}
 
-	/** Edit a previously-sent text message (caller ensures ≤ MAX_MESSAGE_LENGTH chars). */
-	async function editText(chatId: number, messageId: number, text: string, opts?: TextOpts): Promise<void> {
-		await call("editMessageText", { chat_id: chatId, message_id: messageId, ...textBody(text, opts) });
+	/** Stream a partial Rich Message as an ephemeral ~30s draft; updates sharing a
+	 *  `draftId` animate. Unclosed markers in a mid-stream snapshot render
+	 *  best-effort (the parser treats them as invalid data, never errors), so no
+	 *  auto-closing is needed. */
+	async function sendDraft(chatId: number, draftId: number, markdown: string): Promise<void> {
+		await call("sendRichMessageDraft", {
+			chat_id: chatId,
+			draft_id: draftId,
+			rich_message: { markdown },
+		});
 	}
 
-	/** Render markdown → Telegram HTML and send. On a 400 (bad entities) fall
-	 *  back to sending the ORIGINAL markdown as plain text — not the HTML,
-	 *  which may exceed MAX_MESSAGE_LENGTH due to tag overhead. */
-	async function sendRendered(chatId: number, markdown: string): Promise<void> {
-		const html = mdToTelegramHtml(markdown);
+	/** Clear a live draft (best-effort) before committing the real message.
+	 *  Drafts expire on Telegram's side anyway, so failures are ignored. */
+	async function clearDraft(chatId: number, draftId: number): Promise<void> {
 		try {
-			await sendText(chatId, html, { parseMode: "HTML" });
-		} catch (err) {
-			if (err instanceof TelegramApiError && err.code === 400) {
-				await sendText(chatId, markdown);
-				return;
-			}
-			throw err;
+			await call("sendRichMessageDraft", {
+				chat_id: chatId,
+				draft_id: draftId,
+				rich_message: { markdown: "" },
+			});
+		} catch {
+			// best-effort; drafts expire on Telegram's side
 		}
 	}
 
@@ -207,5 +199,5 @@ export function createApi(config: ConfigManager) {
 		);
 	}
 
-	return { call, download, sendText, editText, sendRendered, sendAttachment };
+	return { call, download, sendText, editText, sendDraft, clearDraft, sendAttachment };
 }

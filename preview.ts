@@ -1,8 +1,11 @@
 // Streaming preview / draft management.
 //
 // Caller pushes the full accumulated assistant text via update(); finalize()
-// publishes whatever is buffered. When the buffered tail exceeds 4096, a head
-// is promoted to a real message and the remainder keeps streaming as a draft.
+// publishes whatever is buffered. Streaming uses the native Rich Message API
+// (sendRichMessageDraft → sendRichMessage), so previews and final messages
+// render full GitHub-Flavored Markdown. When the buffered tail exceeds the
+// rich-message budget, a head is promoted to a real message and the remainder
+// keeps streaming as a draft.
 //
 // Concurrency: update() is synchronous and only ever GROWS `fullText`
 // (assistant output is append-only). All async work (draft sends, promotions,
@@ -34,7 +37,9 @@ interface TelegramPreviewState {
 export type PreviewManager = ReturnType<typeof createPreview>;
 
 /** Pick a split point at or before maxLen, preferring paragraph > line > space.
- *  Falls back to a hard split at maxLen if no boundary exists in the second half. */
+ *  Falls back to a hard split at maxLen if no boundary exists in the second half.
+ *  TODO: make this block-aware (don't split inside a ``` fence) so promoted
+ *  heads/tails render cleanly. */
 function findSplitPoint(text: string, maxLen: number): number {
 	const minLen = Math.floor(maxLen / 2);
 	let split = text.lastIndexOf("\n\n", maxLen);
@@ -66,13 +71,9 @@ export function createPreview(api: ApiManager) {
 		return c.fullText.slice(c.publishedPrefix.length);
 	}
 
-	async function deleteDraft(c: TelegramPreviewState): Promise<void> {
+	async function clearDraft(c: TelegramPreviewState): Promise<void> {
 		if (c.draftId === undefined) return;
-		try {
-			await api.call("sendMessageDraft", { chat_id: c.chatId, draft_id: c.draftId, text: "" });
-		} catch {
-			// best-effort; drafts expire on Telegram's side
-		}
+		await api.clearDraft(c.chatId, c.draftId);
 		c.draftId = undefined;
 	}
 
@@ -84,8 +85,8 @@ export function createPreview(api: ApiManager) {
 		while (tail.length > MAX_MESSAGE_LENGTH) {
 			const splitAt = findSplitPoint(tail, MAX_MESSAGE_LENGTH);
 			const head = tail.slice(0, splitAt);
-			await deleteDraft(c);
-			await api.sendRendered(c.chatId, head);
+			await clearDraft(c);
+			await api.sendText(c.chatId, head);
 			c.publishedPrefix += head;
 			c.published = true;
 			c.lastSentText = "";
@@ -116,16 +117,16 @@ export function createPreview(api: ApiManager) {
 		if (!text || text === c.lastSentText) return;
 		const draftId = c.draftId ?? Date.now();
 		c.draftId = draftId;
-		await api.call("sendMessageDraft", { chat_id: c.chatId, draft_id: draftId, text });
+		await api.sendDraft(c.chatId, draftId, text);
 		c.lastSentText = text;
 	}
 
 	async function finalizeState(c: TelegramPreviewState): Promise<boolean> {
 		await promoteOversized(c);
 		const text = pendingTail(c).trim();
-		await deleteDraft(c);
+		await clearDraft(c);
 		if (!text) return c.published;
-		await api.sendRendered(c.chatId, text);
+		await api.sendText(c.chatId, text);
 		c.publishedPrefix = c.fullText;
 		c.published = true;
 		return true;

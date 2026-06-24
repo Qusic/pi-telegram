@@ -131,7 +131,7 @@ export function createDispatcher(deps: DispatcherDeps): Dispatcher {
 					return;
 				}
 				await reply(`\u2713 Resumed: ${label}`);
-				if (recap) await api.sendRendered(firstMessage.chat.id, truncateRecap(recap));
+				if (recap) await api.sendText(firstMessage.chat.id, truncateRecap(recap));
 			});
 			return;
 		}
