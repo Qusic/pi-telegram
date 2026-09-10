@@ -2,6 +2,7 @@
 
 import { extname } from "node:path";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
+import type { AssistantMessage } from "@earendil-works/pi-ai";
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 
 export function sanitizeFileName(name: string): string {
@@ -44,8 +45,8 @@ export function formatTokens(count: number): string {
 	return `${Math.round(count / 1000000)}M`;
 }
 
-export function isAssistantMessage(message: AgentMessage): boolean {
-	return (message as unknown as { role?: string }).role === "assistant";
+export function isAssistantMessage(message: AgentMessage | undefined): message is AssistantMessage {
+	return message?.role === "assistant";
 }
 
 const SECTION_MARKER: Record<"text" | "thinking", string> = {
@@ -53,42 +54,19 @@ const SECTION_MARKER: Record<"text" | "thinking", string> = {
 	thinking: "💭\n",
 };
 
-function extractBlock(raw: unknown): { type: "text" | "thinking"; body: string } | undefined {
-	if (typeof raw !== "object" || raw === null || !("type" in raw)) return;
-	const r = raw as { type: unknown; text?: unknown; thinking?: unknown };
-	if (r.type === "text" && typeof r.text === "string") return { type: "text", body: r.text };
-	if (r.type === "thinking" && typeof r.thinking === "string") return { type: "thinking", body: r.thinking };
-}
-
-/** Render an AgentMessage's content blocks to text. Thinking blocks are
+/** Render an assistant message's content blocks to text. Thinking blocks are
  *  prefixed with 💭, text after thinking with ✏️, so the boundary is
  *  visible in chat. */
-export function getMessageText(message: AgentMessage): string {
-	const value = message as unknown as Record<string, unknown>;
-	const content = Array.isArray(value.content) ? value.content : [];
+export function getMessageText(message: AssistantMessage): string {
 	const parts: string[] = [];
 	let prevType: "text" | "thinking" = "text";
-	for (const raw of content) {
-		const block = extractBlock(raw);
-		if (!block) continue;
+	for (const block of message.content) {
+		if (block.type !== "text" && block.type !== "thinking") continue;
 		const marker = block.type === prevType ? "" : SECTION_MARKER[block.type];
-		parts.push(marker + block.body);
+		parts.push(marker + (block.type === "text" ? block.text : block.thinking));
 		prevType = block.type;
 	}
 	return parts.join("\n\n").trim();
-}
-
-/** Stop reason + error message from a turn's final assistant message. */
-export function extractStopReason(messages: AgentMessage[]): { stopReason?: string; errorMessage?: string } {
-	for (let i = messages.length - 1; i >= 0; i--) {
-		const message = messages[i] as unknown as Record<string, unknown>;
-		if (message.role !== "assistant") continue;
-		return {
-			stopReason: typeof message.stopReason === "string" ? message.stopReason : undefined,
-			errorMessage: typeof message.errorMessage === "string" ? message.errorMessage : undefined,
-		};
-	}
-	return {};
 }
 
 /** Answer text (text blocks only, thinking excluded) of the most recent
@@ -96,7 +74,7 @@ export function extractStopReason(messages: AgentMessage[]): { stopReason?: stri
 export function lastAssistantText(branch: SessionEntry[]): string | undefined {
 	for (let i = branch.length - 1; i >= 0; i--) {
 		const entry = branch[i];
-		if (entry.type !== "message" || !isAssistantMessage(entry.message)) continue;
+		if (entry?.type !== "message" || !isAssistantMessage(entry.message)) continue;
 		const text = answerText(entry.message);
 		if (text) return text;
 	}
@@ -104,14 +82,10 @@ export function lastAssistantText(branch: SessionEntry[]): string | undefined {
 }
 
 /** Like getMessageText, but answer-only — thinking blocks are dropped. */
-function answerText(message: AgentMessage): string {
-	const content = (message as unknown as { content?: unknown }).content;
-	if (!Array.isArray(content)) return "";
-	return content
-		.flatMap((raw) => {
-			const block = extractBlock(raw);
-			return block?.type === "text" ? [block.body] : [];
-		})
+function answerText(message: AssistantMessage): string {
+	return message.content
+		.filter((block) => block.type === "text")
+		.map((block) => block.text)
 		.join("\n\n")
 		.trim();
 }

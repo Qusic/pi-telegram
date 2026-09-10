@@ -10,14 +10,14 @@ import { guessExtensionFromMime, guessMediaType, isImageMimeType } from "./utils
 interface TelegramFileInfo {
 	file_id: string;
 	fileName: string;
-	mimeType?: string;
+	mimeType: string | undefined;
 	isImage: boolean;
 }
 
 interface DownloadedTelegramFile {
 	path: string;
 	isImage: boolean;
-	mimeType?: string;
+	mimeType: string | undefined;
 }
 
 /** Outbound file queued by telegram_attach, sent on agent_end. */

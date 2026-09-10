@@ -72,17 +72,21 @@ function isShort(text: string): boolean {
 }
 
 /** A tappable <summary> over a fenced code block; short bodies auto-expand. */
-function block(label: string, body: string, opts: { lang?: string; max?: number; open?: boolean } = {}): string {
+function block(
+	label: string,
+	body: string,
+	opts: { lang?: string | undefined; max?: number; open?: boolean } = {},
+): string {
 	const clipped = clip(body, opts.max ?? FIELD_MAX);
 	const open = opts.open || isShort(clipped) ? " open" : "";
 	return `<details${open}><summary>${label}</summary>\n\n${fence(clipped, opts.lang ?? "")}\n\n</details>`;
 }
 
-/** A field value as code-block text: strings verbatim, everything else as JSON. */
+/** A field value as code-block text: strings verbatim, JSON when possible. */
 function asCode(value: unknown): string {
 	if (typeof value === "string") return value;
 	try {
-		return JSON.stringify(value, null, 2);
+		return JSON.stringify(value, null, 2) ?? String(value);
 	} catch {
 		return String(value);
 	}

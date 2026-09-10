@@ -35,8 +35,8 @@ interface TelegramPreviewState {
 	lastSentText: string;
 	/** True once anything has been committed as a real message. */
 	published: boolean;
-	draftId?: number;
-	flushTimer?: ReturnType<typeof setTimeout>;
+	draftId: number | undefined;
+	flushTimer: ReturnType<typeof setTimeout> | undefined;
 }
 
 export type PreviewManager = ReturnType<typeof createPreview>;
@@ -86,7 +86,15 @@ export function createPreview(api: ApiManager) {
 	/** Replace the accumulated text and schedule a throttled flush. */
 	function update(chatId: number, fullText: string): void {
 		if (!current || current.chatId !== chatId) {
-			current = { chatId, fullText, publishedChars: 0, lastSentText: "", published: false };
+			current = {
+				chatId,
+				fullText,
+				publishedChars: 0,
+				lastSentText: "",
+				published: false,
+				draftId: undefined,
+				flushTimer: undefined,
+			};
 		} else {
 			current.fullText = fullText;
 		}

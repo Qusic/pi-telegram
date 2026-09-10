@@ -114,15 +114,15 @@ export function createDispatcher(deps: DispatcherDeps): Dispatcher {
 			return;
 		}
 
-		const resumeMatch = lower.match(/^\/resume\s*(\d+)$/);
-		if (resumeMatch) {
+		const resumeNumber = lower.match(/^\/resume\s*(\d+)$/)?.[1];
+		if (resumeNumber !== undefined) {
 			if (!(await requireIdle("resume"))) return;
-			const idx = parseInt(resumeMatch[1], 10) - 1;
-			if (!lastList || idx < 0 || idx >= lastList.length) {
+			const idx = parseInt(resumeNumber, 10) - 1;
+			const target = lastList?.[idx];
+			if (!target) {
 				await reply("Invalid index. Run /resume to list sessions first.");
 				return;
 			}
-			const target = lastList[idx];
 			const label = (target.name || target.firstMessage).replace(/\s+/g, " ").slice(0, 80);
 			trampoline(async (cmdCtx) => {
 				// Within the resumed session's context, grab its last reply to mirror to the chat.

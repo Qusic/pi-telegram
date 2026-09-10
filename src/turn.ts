@@ -15,7 +15,7 @@ import type { MediaManager, QueuedAttachment } from "./media.ts";
 import type { PreviewManager } from "./preview.ts";
 import { type ResultBlock, renderToolEnd, renderToolStart, type ToolArgs } from "./toolcall.ts";
 import type { TelegramMessage } from "./types.ts";
-import { extractStopReason, getMessageText, isAssistantMessage } from "./utils.ts";
+import { getMessageText, isAssistantMessage } from "./utils.ts";
 
 const MAX_ATTACHMENTS_PER_TURN = 10;
 
@@ -168,7 +168,7 @@ export function createTurn(deps: TurnDeps) {
 		toolMessages.clear();
 		if (!turn) return;
 
-		const { stopReason, errorMessage } = extractStopReason(event.messages);
+		const { stopReason, errorMessage } = event.messages.findLast(isAssistantMessage) ?? {};
 		// Always publish whatever streamed so far, then branch on the outcome.
 		const sent = await preview.finalize();
 		if (stopReason === "aborted") return;

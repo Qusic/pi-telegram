@@ -29,9 +29,9 @@ function scanLines(
 		const line = text.slice(pos, end);
 		onLine?.(pos, open !== null, line);
 		const m = FENCE_RE.exec(line);
-		if (m) {
-			const marker = m[1];
-			const info = m[2];
+		const marker = m?.[1];
+		const info = m?.[2];
+		if (marker !== undefined && info !== undefined) {
 			if (!open) {
 				// A backtick fence's info string may not contain a backtick.
 				if (marker[0] === "~" || !info.includes("`")) open = { marker, info: info.trim() };

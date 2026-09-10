@@ -78,7 +78,7 @@ export function createApi(config: ConfigManager) {
 							method: "POST",
 							headers: { "content-type": "application/json" },
 							body: JSON.stringify(body),
-							signal,
+							signal: signal ?? null,
 						});
 
 		const MAX_RETRIES = 5;
@@ -125,7 +125,7 @@ export function createApi(config: ConfigManager) {
 				const form = new FormData();
 				for (const [key, value] of Object.entries(fields)) form.set(key, value);
 				form.set(fileField, blob, fileName);
-				return fetch(baseUrl + method, { method: "POST", body: form, signal: opts?.signal });
+				return fetch(baseUrl + method, { method: "POST", body: form, signal: opts?.signal ?? null });
 			},
 			opts,
 		);
