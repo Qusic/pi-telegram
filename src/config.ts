@@ -23,15 +23,15 @@ async function readConfig(): Promise<TelegramConfig> {
 
 async function writeConfig(config: TelegramConfig): Promise<void> {
 	await mkdir(join(homedir(), ".pi", "agent"), { recursive: true });
-	await writeFile(CONFIG_PATH, JSON.stringify(config, null, "\t") + "\n", "utf8");
+	await writeFile(CONFIG_PATH, `${JSON.stringify(config, null, "\t")}\n`, "utf8");
 }
 
 function validateConfig(config: TelegramConfig): void {
 	if (!config.botToken) {
 		throw new Error(
 			`Telegram bridge: ${CONFIG_PATH} missing "botToken". ` +
-			`Create the file with {"botToken": "<bot-token-from-BotFather>"} and restart. ` +
-			`Optionally set "allowedUserId" too — if omitted, the bot will report your user id when you first message it.`,
+				`Create the file with {"botToken": "<bot-token-from-BotFather>"} and restart. ` +
+				`Optionally set "allowedUserId" too — if omitted, the bot will report your user id when you first message it.`,
 		);
 	}
 }

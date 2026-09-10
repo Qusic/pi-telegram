@@ -7,13 +7,17 @@
 // and fire `/telegram-execute-action` to bounce through a registered command
 // handler whose ctx has the right type.
 
-import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type {
+	ExtensionAPI,
+	ExtensionCommandContext,
+	ExtensionContext,
+	SessionInfo,
+} from "@earendil-works/pi-coding-agent";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
-import type { SessionInfo } from "@earendil-works/pi-coding-agent";
-import { type ApiManager, MAX_MESSAGE_LENGTH } from "./api.js";
-import type { TurnManager } from "./turn.js";
-import type { TelegramMessage } from "./types.js";
-import { formatTokens, lastAssistantText } from "./utils.js";
+import { type ApiManager, MAX_MESSAGE_LENGTH } from "./api.ts";
+import type { TurnManager } from "./turn.ts";
+import type { TelegramMessage } from "./types.ts";
+import { formatTokens, lastAssistantText } from "./utils.ts";
 
 export type Dispatcher = (messages: TelegramMessage[], ctx: ExtensionContext) => Promise<void>;
 
@@ -21,12 +25,12 @@ type PendingTelegramAction = (ctx: ExtensionCommandContext) => Promise<void>;
 
 /** Commands published to the Telegram bot menu at boot. */
 const BOT_COMMANDS = [
-	{ command: "new",     description: "Start a new session" },
-	{ command: "resume",  description: "List or resume sessions: /resume [n]" },
-	{ command: "stop",    description: "Abort current turn" },
-	{ command: "status",  description: "Show usage info" },
+	{ command: "new", description: "Start a new session" },
+	{ command: "resume", description: "List or resume sessions: /resume [n]" },
+	{ command: "stop", description: "Abort current turn" },
+	{ command: "status", description: "Show usage info" },
 	{ command: "compact", description: "Compact conversation" },
-	{ command: "skills",  description: "List available skills" },
+	{ command: "skills", description: "List available skills" },
 ];
 
 export interface DispatcherDeps {
@@ -54,13 +58,11 @@ export function createDispatcher(deps: DispatcherDeps): Dispatcher {
 	});
 
 	/** Bounce through a registered command so the handler gets an
-	 *  ExtensionCommandContext (with newSession/switchSession). expandSkills
-	 *  is required to route extension commands — only supported on a locally
-	 *  patched pi; upstream pi ignores the option (and relies on the LLM to
-	 *  discover skills on its own). */
+	 *  ExtensionCommandContext (with newSession/switchSession). Opt into
+	 *  command dispatch so the internal command is not sent to the LLM. */
 	function trampoline(action: PendingTelegramAction): void {
 		pendingAction = action;
-		pi.sendUserMessage("/telegram-execute-action", { expandSkills: true } as any);
+		pi.sendUserMessage("/telegram-execute-action", { expandPromptTemplates: true });
 	}
 
 	// Publish the bot menu once. Telegram persists this server-side; a network
@@ -80,7 +82,7 @@ export function createDispatcher(deps: DispatcherDeps): Dispatcher {
 		};
 
 		if (lower === "/new") {
-			if (!await requireIdle("start new session")) return;
+			if (!(await requireIdle("start new session"))) return;
 			trampoline(async (cmdCtx) => {
 				const result = await cmdCtx.newSession();
 				await reply(result.cancelled ? "New session cancelled." : "✅ New session started.");
@@ -99,7 +101,12 @@ export function createDispatcher(deps: DispatcherDeps): Dispatcher {
 			}
 			const lines = lastList.map((s, i) => {
 				const marker = s.path === currentFile ? "● " : "";
-				const date = s.modified.toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+				const date = s.modified.toLocaleString(undefined, {
+					month: "short",
+					day: "numeric",
+					hour: "2-digit",
+					minute: "2-digit",
+				});
 				const title = (s.name || s.firstMessage).replace(/\s+/g, " ").slice(0, 60);
 				return `- ${marker}/resume${i + 1} — ${code(title)} · ${s.messageCount} msg · ${date}`;
 			});
@@ -109,7 +116,7 @@ export function createDispatcher(deps: DispatcherDeps): Dispatcher {
 
 		const resumeMatch = lower.match(/^\/resume\s*(\d+)$/);
 		if (resumeMatch) {
-			if (!await requireIdle("resume")) return;
+			if (!(await requireIdle("resume"))) return;
 			const idx = parseInt(resumeMatch[1], 10) - 1;
 			if (!lastList || idx < 0 || idx >= lastList.length) {
 				await reply("Invalid index. Run /resume to list sessions first.");
@@ -147,9 +154,11 @@ export function createDispatcher(deps: DispatcherDeps): Dispatcher {
 		}
 
 		if (lower === "/compact") {
-			if (!await requireIdle("compact")) return;
+			if (!(await requireIdle("compact"))) return;
 			ctx.compact({
-				onComplete: () => { void reply("✅ Compaction completed."); },
+				onComplete: () => {
+					void reply("✅ Compaction completed.");
+				},
 				onError: (error) => {
 					const message = error instanceof Error ? error.message : String(error);
 					void reply(`⚠️ Compaction failed: ${message}`);
@@ -160,7 +169,8 @@ export function createDispatcher(deps: DispatcherDeps): Dispatcher {
 		}
 
 		if (lower === "/skills") {
-			const skills = pi.getCommands()
+			const skills = pi
+				.getCommands()
 				.filter((cmd) => cmd.source === "skill")
 				.map((cmd) => `- /${cmd.name} — ${cmd.description || "no description"}`);
 			await reply(skills.length > 0 ? section("**Skills**", skills) : "No skills available.");
@@ -182,7 +192,7 @@ function truncateRecap(text: string): string {
 // Inline-code dynamic text (model ids, titles, costs) so Rich Message markdown
 // can't mis-parse it; backticks are neutralized.
 function code(text: string): string {
-	return "`" + text.replaceAll("`", "ʼ") + "`";
+	return `\`${text.replaceAll("`", "ʼ")}\``;
 }
 
 /** A titled message: heading, blank line, then body lines. */
@@ -191,7 +201,11 @@ function section(heading: string, body: string[]): string {
 }
 
 function buildStatusReport(ctx: ExtensionContext): string {
-	let totalInput = 0, totalOutput = 0, totalCacheRead = 0, totalCacheWrite = 0, totalCost = 0;
+	let totalInput = 0,
+		totalOutput = 0,
+		totalCacheRead = 0,
+		totalCacheWrite = 0,
+		totalCost = 0;
 	for (const entry of ctx.sessionManager.getEntries()) {
 		if (entry.type !== "message" || entry.message.role !== "assistant") continue;
 		totalInput += entry.message.usage.input;
@@ -210,7 +224,8 @@ function buildStatusReport(ctx: ExtensionContext): string {
 	if (totalCacheWrite) tokenParts.push(`W${formatTokens(totalCacheWrite)}`);
 	if (tokenParts.length > 0) rows.push(`- **Tokens** — ${tokenParts.join(" ")}`);
 	const usingSubscription = ctx.model ? ctx.modelRegistry.isUsingOAuth(ctx.model) : false;
-	if (totalCost || usingSubscription) rows.push(`- **Cost** — ${code(`$${totalCost.toFixed(3)}`)}${usingSubscription ? " · sub" : ""}`);
+	if (totalCost || usingSubscription)
+		rows.push(`- **Cost** — ${code(`$${totalCost.toFixed(3)}`)}${usingSubscription ? " · sub" : ""}`);
 	if (usage) {
 		const contextWindow = usage.contextWindow ?? ctx.model?.contextWindow ?? 0;
 		const percent = usage.percent !== null ? `${usage.percent.toFixed(1)}%` : "?";

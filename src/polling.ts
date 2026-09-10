@@ -2,10 +2,10 @@
 // authorization filtering. Self-registers session_start/shutdown handlers.
 
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import type { ApiManager } from "./api.js";
-import type { ConfigManager } from "./config.js";
-import type { Dispatcher } from "./dispatch.js";
-import type { TelegramMessage } from "./types.js";
+import type { ApiManager } from "./api.ts";
+import type { ConfigManager } from "./config.ts";
+import type { Dispatcher } from "./dispatch.ts";
+import type { TelegramMessage } from "./types.ts";
 
 const TELEGRAM_MEDIA_GROUP_DEBOUNCE_MS = 1200;
 
@@ -99,14 +99,14 @@ export function createPolling(deps: PollingDeps): void {
 
 	async function handleUpdate(update: TelegramUpdate, ctx: ExtensionContext): Promise<void> {
 		const message = update.message || update.edited_message;
-		if (!message || message.chat.type !== "private" || !message.from || message.from.is_bot) return;
+		if (message?.chat.type !== "private" || !message.from || message.from.is_bot) return;
 
 		const cfg = config.get();
 		if (cfg.allowedUserId === undefined) {
 			// Bootstrap: report the user id so the operator can authorize it.
 			ctx.ui.notify(
 				`Telegram bridge: received message from user id ${message.from.id}. ` +
-				`Add "allowedUserId": ${message.from.id} to ~/.pi/agent/telegram.json to authorize, then restart.`,
+					`Add "allowedUserId": ${message.from.id} to ~/.pi/agent/telegram.json to authorize, then restart.`,
 				"warning",
 			);
 			await api.sendText(message.chat.id, "Bot not configured: ask the operator to authorize your user id.");

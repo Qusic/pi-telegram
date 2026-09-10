@@ -2,13 +2,13 @@
 // returns a manager closure that owns its own state and event handlers.
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { createApi } from "./api.js";
-import { createConfig } from "./config.js";
-import { createDispatcher } from "./dispatch.js";
-import { createMedia } from "./media.js";
-import { createPolling } from "./polling.js";
-import { createPreview } from "./preview.js";
-import { createTurn } from "./turn.js";
+import { createApi } from "./api.ts";
+import { createConfig } from "./config.ts";
+import { createDispatcher } from "./dispatch.ts";
+import { createMedia } from "./media.ts";
+import { createPolling } from "./polling.ts";
+import { createPreview } from "./preview.ts";
+import { createTurn } from "./turn.ts";
 
 export default async function (pi: ExtensionAPI) {
 	const config = await createConfig();

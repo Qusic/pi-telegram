@@ -7,15 +7,15 @@
 
 import { stat } from "node:fs/promises";
 import { basename } from "node:path";
-import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { ImageContent, TextContent } from "@earendil-works/pi-ai";
-import { Type } from "@sinclair/typebox";
-import type { ApiManager } from "./api.js";
-import type { MediaManager, QueuedAttachment } from "./media.js";
-import type { PreviewManager } from "./preview.js";
-import { type ResultBlock, type ToolArgs, renderToolEnd, renderToolStart } from "./toolcall.js";
-import type { TelegramMessage } from "./types.js";
-import { extractStopReason, getMessageText, isAssistantMessage } from "./utils.js";
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { Type } from "typebox";
+import type { ApiManager } from "./api.ts";
+import type { MediaManager, QueuedAttachment } from "./media.ts";
+import type { PreviewManager } from "./preview.ts";
+import { type ResultBlock, renderToolEnd, renderToolStart, type ToolArgs } from "./toolcall.ts";
+import type { TelegramMessage } from "./types.ts";
+import { extractStopReason, getMessageText, isAssistantMessage } from "./utils.ts";
 
 const MAX_ATTACHMENTS_PER_TURN = 10;
 
@@ -55,7 +55,9 @@ export function createTurn(deps: TurnDeps) {
 			}
 		};
 		void sendTyping();
-		typingInterval = setInterval(() => { void sendTyping(); }, 4000);
+		typingInterval = setInterval(() => {
+			void sendTyping();
+		}, 4000);
 	}
 
 	function stopTyping(): void {
@@ -86,7 +88,10 @@ export function createTurn(deps: TurnDeps) {
 			"To send a file or generated artifact back to the user, call telegram_attach with its local path. Mentioning the path in plain text alone will not deliver the file.",
 		],
 		parameters: Type.Object({
-			paths: Type.Array(Type.String({ description: "Local file path to attach" }), { minItems: 1, maxItems: MAX_ATTACHMENTS_PER_TURN }),
+			paths: Type.Array(Type.String({ description: "Local file path to attach" }), {
+				minItems: 1,
+				maxItems: MAX_ATTACHMENTS_PER_TURN,
+			}),
 		}),
 		async execute(_toolCallId, params) {
 			if (!active) throw new Error("telegram_attach can only be used while replying to an active Telegram turn");
@@ -186,12 +191,10 @@ export function createTurn(deps: TurnDeps) {
 			pending = built;
 			startTyping(built.chatId);
 		}
-		// expandSkills is only honored by a locally patched pi; upstream pi ignores
-		// it (skills are discovered by the LLM on its own).
-		pi.sendUserMessage(
-			built.content,
-			{ expandSkills: true, ...(isFresh ? {} : { deliverAs: "steer" }) } as any,
-		);
+		pi.sendUserMessage(built.content, {
+			expandPromptTemplates: true,
+			...(isFresh ? {} : { deliverAs: "steer" }),
+		});
 	}
 
 	/** Abort the active turn. Returns true iff one was active. */

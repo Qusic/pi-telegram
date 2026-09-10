@@ -15,8 +15,8 @@
 // `publishedChars` at point-of-use, so an update() landing between awaits can
 // never corrupt the invariant.
 
-import { type ApiManager, MAX_MESSAGE_LENGTH } from "./api.js";
-import { nextBoundary, renderChunk } from "./chunk.js";
+import { type ApiManager, MAX_MESSAGE_LENGTH } from "./api.ts";
+import { nextBoundary, renderChunk } from "./chunk.ts";
 
 const PREVIEW_THROTTLE_MS = 1500;
 

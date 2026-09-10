@@ -3,9 +3,9 @@
 
 import { readFile } from "node:fs/promises";
 import type { ImageContent, TextContent } from "@earendil-works/pi-ai";
-import type { ApiManager } from "./api.js";
-import type { TelegramMessage } from "./types.js";
-import { guessExtensionFromMime, guessMediaType, isImageMimeType } from "./utils.js";
+import type { ApiManager } from "./api.ts";
+import type { TelegramMessage } from "./types.ts";
+import { guessExtensionFromMime, guessMediaType, isImageMimeType } from "./utils.ts";
 
 interface TelegramFileInfo {
 	file_id: string;
@@ -34,44 +34,59 @@ export function createMedia(api: ApiManager) {
 		for (const m of messages) {
 			if (Array.isArray(m.photo) && m.photo.length > 0) {
 				const photo = [...m.photo].sort((a, b) => (a.file_size ?? 0) - (b.file_size ?? 0)).pop();
-				if (photo) files.push({ file_id: photo.file_id, fileName: `photo-${m.message_id}.jpg`, mimeType: "image/jpeg", isImage: true });
+				if (photo)
+					files.push({
+						file_id: photo.file_id,
+						fileName: `photo-${m.message_id}.jpg`,
+						mimeType: "image/jpeg",
+						isImage: true,
+					});
 			}
-			if (m.document) files.push({
-				file_id: m.document.file_id,
-				fileName: m.document.file_name || `document-${m.message_id}${guessExtensionFromMime(m.document.mime_type, "")}`,
-				mimeType: m.document.mime_type,
-				isImage: isImageMimeType(m.document.mime_type),
-			});
-			if (m.video) files.push({
-				file_id: m.video.file_id,
-				fileName: m.video.file_name || `video-${m.message_id}${guessExtensionFromMime(m.video.mime_type, ".mp4")}`,
-				mimeType: m.video.mime_type,
-				isImage: false,
-			});
-			if (m.audio) files.push({
-				file_id: m.audio.file_id,
-				fileName: m.audio.file_name || `audio-${m.message_id}${guessExtensionFromMime(m.audio.mime_type, ".mp3")}`,
-				mimeType: m.audio.mime_type,
-				isImage: false,
-			});
-			if (m.voice) files.push({
-				file_id: m.voice.file_id,
-				fileName: `voice-${m.message_id}${guessExtensionFromMime(m.voice.mime_type, ".ogg")}`,
-				mimeType: m.voice.mime_type,
-				isImage: false,
-			});
-			if (m.animation) files.push({
-				file_id: m.animation.file_id,
-				fileName: m.animation.file_name || `animation-${m.message_id}${guessExtensionFromMime(m.animation.mime_type, ".mp4")}`,
-				mimeType: m.animation.mime_type,
-				isImage: false,
-			});
-			if (m.sticker) files.push({
-				file_id: m.sticker.file_id,
-				fileName: `sticker-${m.message_id}.webp`,
-				mimeType: "image/webp",
-				isImage: true,
-			});
+			if (m.document)
+				files.push({
+					file_id: m.document.file_id,
+					fileName:
+						m.document.file_name || `document-${m.message_id}${guessExtensionFromMime(m.document.mime_type, "")}`,
+					mimeType: m.document.mime_type,
+					isImage: isImageMimeType(m.document.mime_type),
+				});
+			if (m.video)
+				files.push({
+					file_id: m.video.file_id,
+					fileName: m.video.file_name || `video-${m.message_id}${guessExtensionFromMime(m.video.mime_type, ".mp4")}`,
+					mimeType: m.video.mime_type,
+					isImage: false,
+				});
+			if (m.audio)
+				files.push({
+					file_id: m.audio.file_id,
+					fileName: m.audio.file_name || `audio-${m.message_id}${guessExtensionFromMime(m.audio.mime_type, ".mp3")}`,
+					mimeType: m.audio.mime_type,
+					isImage: false,
+				});
+			if (m.voice)
+				files.push({
+					file_id: m.voice.file_id,
+					fileName: `voice-${m.message_id}${guessExtensionFromMime(m.voice.mime_type, ".ogg")}`,
+					mimeType: m.voice.mime_type,
+					isImage: false,
+				});
+			if (m.animation)
+				files.push({
+					file_id: m.animation.file_id,
+					fileName:
+						m.animation.file_name ||
+						`animation-${m.message_id}${guessExtensionFromMime(m.animation.mime_type, ".mp4")}`,
+					mimeType: m.animation.mime_type,
+					isImage: false,
+				});
+			if (m.sticker)
+				files.push({
+					file_id: m.sticker.file_id,
+					fileName: `sticker-${m.message_id}.webp`,
+					mimeType: "image/webp",
+					isImage: true,
+				});
 		}
 		return files;
 	}
@@ -87,7 +102,10 @@ export function createMedia(api: ApiManager) {
 
 	/** Build LLM-bound prompt content: text + attachment paths + inline images. */
 	async function buildPromptContent(messages: TelegramMessage[]): Promise<Array<TextContent | ImageContent>> {
-		const rawText = messages.map((m) => (m.text || m.caption || "").trim()).filter(Boolean).join("\n\n");
+		const rawText = messages
+			.map((m) => (m.text || m.caption || "").trim())
+			.filter(Boolean)
+			.join("\n\n");
 		const files = await downloadFiles(messages);
 		const content: Array<TextContent | ImageContent> = [];
 

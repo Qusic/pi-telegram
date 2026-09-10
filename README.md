@@ -52,6 +52,12 @@ Media-group debouncing and the `telegram_attach` tool surface match upstream. In
 Only one pi session should poll a given bot token at a time, so load this per-session instead of installing globally:
 
 ```bash
+pi -e npm:@qusic/pi-telegram
+```
+
+To use the Git checkout instead:
+
+```bash
 pi -e git:github.com/Qusic/pi-telegram
 ```
 

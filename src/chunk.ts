@@ -82,9 +82,5 @@ function renderSegment(raw: string, openStart: OpenFence | null, openEnd: OpenFe
  *  carried over from before `from` and closing one left open at `to`. At a
  *  clean boundary it's just the slice. */
 export function renderChunk(text: string, from: number, to: number): string {
-	return renderSegment(
-		text.slice(from, to),
-		openFenceAt(text.slice(0, from)),
-		openFenceAt(text.slice(0, to)),
-	);
+	return renderSegment(text.slice(from, to), openFenceAt(text.slice(0, from)), openFenceAt(text.slice(0, to)));
 }

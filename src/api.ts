@@ -3,8 +3,8 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import type { ConfigManager } from "./config.js";
-import { guessMediaType, sanitizeFileName } from "./utils.js";
+import type { ConfigManager } from "./config.ts";
+import { guessMediaType, sanitizeFileName } from "./utils.ts";
 
 const TEMP_DIR = join(homedir(), ".pi", "agent", "tmp", "telegram");
 
@@ -70,14 +70,16 @@ export function createApi(config: ConfigManager) {
 		opts?: { signal?: AbortSignal },
 	): Promise<T> {
 		const signal = opts?.signal;
-		const makeRequest = typeof body === "function"
-			? body
-			: () => fetch(baseUrl + method, {
-				method: "POST",
-				headers: { "content-type": "application/json" },
-				body: JSON.stringify(body),
-				signal,
-			});
+		const makeRequest =
+			typeof body === "function"
+				? body
+				: () =>
+						fetch(baseUrl + method, {
+							method: "POST",
+							headers: { "content-type": "application/json" },
+							body: JSON.stringify(body),
+							signal,
+						});
 
 		const MAX_RETRIES = 5;
 		const MAX_BACKOFF_MS = 15_000;
@@ -117,12 +119,16 @@ export function createApi(config: ConfigManager) {
 	): Promise<T> {
 		// Read once; rebuild the FormData per attempt (a consumed body can't be reused).
 		const blob = new Blob([await readFile(filePath)]);
-		return call<T>(method, () => {
-			const form = new FormData();
-			for (const [key, value] of Object.entries(fields)) form.set(key, value);
-			form.set(fileField, blob, fileName);
-			return fetch(baseUrl + method, { method: "POST", body: form, signal: opts?.signal });
-		}, opts);
+		return call<T>(
+			method,
+			() => {
+				const form = new FormData();
+				for (const [key, value] of Object.entries(fields)) form.set(key, value);
+				form.set(fileField, blob, fileName);
+				return fetch(baseUrl + method, { method: "POST", body: form, signal: opts?.signal });
+			},
+			opts,
+		);
 	}
 
 	async function download(fileId: string, suggestedName: string): Promise<string> {
@@ -182,21 +188,11 @@ export function createApi(config: ConfigManager) {
 	}
 
 	/** Upload a local file as photo (if recognised image mime) or generic document. */
-	async function sendAttachment(
-		chatId: number,
-		filePath: string,
-		fileName: string,
-	): Promise<TelegramSentMessage> {
+	async function sendAttachment(chatId: number, filePath: string, fileName: string): Promise<TelegramSentMessage> {
 		const mediaType = guessMediaType(filePath);
 		const method = mediaType ? "sendPhoto" : "sendDocument";
 		const fieldName = mediaType ? "photo" : "document";
-		return await callMultipart<TelegramSentMessage>(
-			method,
-			{ chat_id: String(chatId) },
-			fieldName,
-			filePath,
-			fileName,
-		);
+		return await callMultipart<TelegramSentMessage>(method, { chat_id: String(chatId) }, fieldName, filePath, fileName);
 	}
 
 	return { call, download, sendText, editText, sendDraft, clearDraft, sendAttachment };
