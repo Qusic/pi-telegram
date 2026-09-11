@@ -4,7 +4,8 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
-export interface TelegramConfig {
+interface TelegramConfig {
+	apiRoot?: string;
 	botToken?: string;
 	allowedUserId?: number;
 	lastUpdateId?: number;
@@ -36,7 +37,7 @@ function validateConfig(config: TelegramConfig): void {
 	}
 }
 
-export type ConfigManager = {
+type ConfigManager = {
 	get(): TelegramConfig;
 	update(patch: Partial<TelegramConfig>): Promise<void>;
 };

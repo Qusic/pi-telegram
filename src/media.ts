@@ -3,7 +3,7 @@
 
 import { readFile } from "node:fs/promises";
 import type { ImageContent, TextContent } from "@earendil-works/pi-ai";
-import type { ApiManager } from "./api.ts";
+import type { createApi } from "./api.ts";
 import type { TelegramMessage } from "./types.ts";
 import { guessExtensionFromMime, guessMediaType, isImageMimeType } from "./utils.ts";
 
@@ -26,9 +26,7 @@ export interface QueuedAttachment {
 	fileName: string;
 }
 
-export type MediaManager = ReturnType<typeof createMedia>;
-
-export function createMedia(api: ApiManager) {
+export function createMedia(api: ReturnType<typeof createApi>) {
 	function collectFileInfos(messages: TelegramMessage[]): TelegramFileInfo[] {
 		const files: TelegramFileInfo[] = [];
 		for (const m of messages) {

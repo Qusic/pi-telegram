@@ -14,12 +14,12 @@ import type {
 	SessionInfo,
 } from "@earendil-works/pi-coding-agent";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
-import { type ApiManager, MAX_MESSAGE_LENGTH } from "./api.ts";
-import type { TurnManager } from "./turn.ts";
+import { type createApi, MAX_MESSAGE_LENGTH } from "./api.ts";
+import type { createTurn } from "./turn.ts";
 import type { TelegramMessage } from "./types.ts";
 import { formatTokens, lastAssistantText } from "./utils.ts";
 
-export type Dispatcher = (messages: TelegramMessage[], ctx: ExtensionContext) => Promise<void>;
+type Dispatcher = (messages: TelegramMessage[], ctx: ExtensionContext) => Promise<void>;
 
 type PendingTelegramAction = (ctx: ExtensionCommandContext) => Promise<void>;
 
@@ -33,10 +33,10 @@ const BOT_COMMANDS = [
 	{ command: "skills", description: "List available skills" },
 ];
 
-export interface DispatcherDeps {
+interface DispatcherDeps {
 	pi: ExtensionAPI;
-	api: ApiManager;
-	turn: TurnManager;
+	api: ReturnType<typeof createApi>;
+	turn: ReturnType<typeof createTurn>;
 }
 
 export function createDispatcher(deps: DispatcherDeps): Dispatcher {

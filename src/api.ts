@@ -3,7 +3,7 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import type { ConfigManager } from "./config.ts";
+import type { createConfig } from "./config.ts";
 import { guessMediaType, sanitizeFileName } from "./utils.ts";
 
 const TEMP_DIR = join(homedir(), ".pi", "agent", "tmp", "telegram");
@@ -45,15 +45,15 @@ interface TelegramGetFileResult {
 }
 
 /** Response shape for sendRichMessage / sendPhoto / sendDocument etc. */
-export interface TelegramSentMessage {
+interface TelegramSentMessage {
 	message_id: number;
 }
 
-export type ApiManager = ReturnType<typeof createApi>;
-
-export function createApi(config: ConfigManager) {
-	const baseUrl = `https://api.telegram.org/bot${config.get().botToken}/`;
-	const fileBaseUrl = `https://api.telegram.org/file/bot${config.get().botToken}/`;
+export function createApi(config: Awaited<ReturnType<typeof createConfig>>) {
+	const { apiRoot: configuredApiRoot, botToken } = config.get();
+	const apiRoot = (configuredApiRoot || "https://api.telegram.org").replace(/\/+$/, "");
+	const baseUrl = `${apiRoot}/bot${botToken}/`;
+	const fileBaseUrl = `${apiRoot}/file/bot${botToken}/`;
 
 	// POST to the Bot API with shared retry on 429 / 5xx / network errors.
 	// Pass a plain object for the common JSON call, or a request factory

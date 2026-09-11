@@ -2,9 +2,9 @@
 // authorization filtering. Self-registers session_start/shutdown handlers.
 
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import type { ApiManager } from "./api.ts";
-import type { ConfigManager } from "./config.ts";
-import type { Dispatcher } from "./dispatch.ts";
+import type { createApi } from "./api.ts";
+import type { createConfig } from "./config.ts";
+import type { createDispatcher } from "./dispatch.ts";
 import type { TelegramMessage } from "./types.ts";
 
 const TELEGRAM_MEDIA_GROUP_DEBOUNCE_MS = 1200;
@@ -20,11 +20,11 @@ interface TelegramMediaGroupState {
 	flushTimer?: ReturnType<typeof setTimeout>;
 }
 
-export interface PollingDeps {
+interface PollingDeps {
 	pi: ExtensionAPI;
-	api: ApiManager;
-	config: ConfigManager;
-	dispatch: Dispatcher;
+	api: ReturnType<typeof createApi>;
+	config: Awaited<ReturnType<typeof createConfig>>;
+	dispatch: ReturnType<typeof createDispatcher>;
 }
 
 export function createPolling(deps: PollingDeps): void {

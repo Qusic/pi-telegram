@@ -10,9 +10,9 @@ import { basename } from "node:path";
 import type { ImageContent, TextContent } from "@earendil-works/pi-ai";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import type { ApiManager } from "./api.ts";
-import type { MediaManager, QueuedAttachment } from "./media.ts";
-import type { PreviewManager } from "./preview.ts";
+import type { createApi } from "./api.ts";
+import type { createMedia, QueuedAttachment } from "./media.ts";
+import type { createPreview } from "./preview.ts";
 import { type ResultBlock, renderToolEnd, renderToolStart, type ToolArgs } from "./toolcall.ts";
 import type { TelegramMessage } from "./types.ts";
 import { getMessageText, isAssistantMessage } from "./utils.ts";
@@ -25,13 +25,11 @@ interface TelegramTurn {
 	content: Array<TextContent | ImageContent>;
 }
 
-export type TurnManager = ReturnType<typeof createTurn>;
-
-export interface TurnDeps {
+interface TurnDeps {
 	pi: ExtensionAPI;
-	api: ApiManager;
-	media: MediaManager;
-	preview: PreviewManager;
+	api: ReturnType<typeof createApi>;
+	media: ReturnType<typeof createMedia>;
+	preview: ReturnType<typeof createPreview>;
 }
 
 export function createTurn(deps: TurnDeps) {

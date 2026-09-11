@@ -15,7 +15,7 @@
 // `publishedChars` at point-of-use, so an update() landing between awaits can
 // never corrupt the invariant.
 
-import { type ApiManager, MAX_MESSAGE_LENGTH } from "./api.ts";
+import { type createApi, MAX_MESSAGE_LENGTH } from "./api.ts";
 import { nextBoundary, renderChunk } from "./chunk.ts";
 
 const PREVIEW_THROTTLE_MS = 1500;
@@ -39,9 +39,7 @@ interface TelegramPreviewState {
 	flushTimer: ReturnType<typeof setTimeout> | undefined;
 }
 
-export type PreviewManager = ReturnType<typeof createPreview>;
-
-export function createPreview(api: ApiManager) {
+export function createPreview(api: ReturnType<typeof createApi>) {
 	let current: TelegramPreviewState | undefined;
 
 	// Single-writer queue: every async preview op runs strictly one at a time,
