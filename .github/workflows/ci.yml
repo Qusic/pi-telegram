@@ -23,7 +23,6 @@ jobs:
         with:
           version: latest
           runtime: node@lts
-      - run: pnpm install --frozen-lockfile
       - run: pnpm run check
       - run: pnpm run lint
       - run: pnpm run test
@@ -46,7 +45,6 @@ jobs:
         with:
           version: latest
           runtime: node@lts
-      - run: pnpm install --frozen-lockfile
       - run: pnpm run release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
