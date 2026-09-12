@@ -20,6 +20,25 @@ interface TelegramMediaGroupState {
 	flushTimer?: ReturnType<typeof setTimeout>;
 }
 
+interface IncomingPrivateMessage {
+	message: TelegramMessage;
+	userId: number;
+}
+
+function getIncomingPrivateMessage(update: TelegramUpdate): IncomingPrivateMessage | undefined {
+	const message = update.message ?? update.edited_message;
+	if (message?.chat.type !== "private" || !message.from || message.from.is_bot) return undefined;
+	return { message, userId: message.from.id };
+}
+
+function notifyAuthorizationRequired(ctx: ExtensionContext, userId: number): void {
+	ctx.ui.notify(
+		`Telegram user id ${userId} needs authorization. ` +
+			`Add "allowedUserId": ${userId} to ~/.pi/agent/telegram.json, then restart pi.`,
+		"warning",
+	);
+}
+
 interface PollingDeps {
 	pi: ExtensionAPI;
 	api: ReturnType<typeof createApi>;
@@ -62,7 +81,15 @@ export function createPolling(deps: PollingDeps): void {
 					{ signal },
 				);
 				const last = updates.at(-1);
-				if (last) await config.update({ lastUpdateId: last.update_id });
+				if (last) {
+					await config.update({ lastUpdateId: last.update_id });
+					// Skip stale work on startup, but still report the authorization id
+					// from the latest private message when authorization is unconfigured.
+					if (config.get().allowedUserId === undefined) {
+						const incoming = getIncomingPrivateMessage(last);
+						if (incoming) notifyAuthorizationRequired(ctx, incoming.userId);
+					}
+				}
 			} catch {
 				// ignore
 			}
@@ -98,25 +125,19 @@ export function createPolling(deps: PollingDeps): void {
 	}
 
 	async function handleUpdate(update: TelegramUpdate, ctx: ExtensionContext): Promise<void> {
-		const message = update.message || update.edited_message;
-		if (message?.chat.type !== "private" || !message.from || message.from.is_bot) return;
+		const incoming = getIncomingPrivateMessage(update);
+		if (!incoming) return;
+		const { message, userId } = incoming;
 
 		const cfg = config.get();
 		if (cfg.allowedUserId === undefined) {
-			// Bootstrap: report the user id so the operator can authorize it.
-			ctx.ui.notify(
-				`Telegram bridge: received message from user id ${message.from.id}. ` +
-					`Add "allowedUserId": ${message.from.id} to ~/.pi/agent/telegram.json to authorize, then restart.`,
-				"warning",
-			);
-			await api.sendText(message.chat.id, "Bot not configured: ask the operator to authorize your user id.");
+			notifyAuthorizationRequired(ctx, userId);
 			return;
 		}
 
-		if (message.from.id !== cfg.allowedUserId) {
-			await api.sendText(message.chat.id, "This bot is not authorized for your account.");
-			return;
-		}
+		// Stay silent for unauthorized senders so the bot does not disclose that
+		// it is active or invite strangers to keep probing it.
+		if (userId !== cfg.allowedUserId) return;
 
 		// Albums arrive as separate updates with the same media_group_id; debounce.
 		if (message.media_group_id) {
@@ -139,8 +160,8 @@ export function createPolling(deps: PollingDeps): void {
 	// ---------- pi handler registration ----------
 
 	pi.on("session_start", (_event, ctx) => {
-		// botToken validity guaranteed by createConfig; allowedUserId may still
-		// be missing — handleUpdate bootstraps it on first incoming message.
+		// botToken validity is guaranteed by createConfig; polling reports the
+		// sender id locally while allowedUserId is missing.
 		start(ctx);
 	});
 

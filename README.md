@@ -39,7 +39,7 @@ Resuming a session echoes that session's last reply back to the chat, so it refl
 | Area                  | Upstream                                                                        | This fork                                                                                                  |
 | --------------------- | ------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
 | Setup & lifecycle     | `/telegram-setup` / `/telegram-connect` / `/telegram-disconnect` commands; explicit per-session connect | No pi-side commands; you write `~/.pi/agent/telegram.json` yourself, polling auto-starts per session       |
-| Authorization         | First DM user is auto-paired                                                    | First DM user id is reported via `notify`; you add it to the config and restart                            |
+| Authorization         | First DM user is auto-paired                                                    | First DM sender id is shown as a warning in pi; unauthorized senders receive no response                   |
 | Commands & bot menu   | Telegram-side commands limited to `/status`, `/compact`, `stop`, `/help`, `/start`; no menu published | Adds `/new`, `/resume`, `/skills` and publishes the menu via `setMyCommands`; session switching from Telegram |
 | Concurrency           | Extra messages while busy are queued and dispatched after the current turn ends | Extra messages are steered into the running turn                                                           |
 | Aborted-turn replay   | After `stop`, queued messages are re-injected as a synthetic history block      | No replay — `stop` just aborts                                                                             |
@@ -76,7 +76,7 @@ pi -e git:github.com/Qusic/pi-telegram
    ```
 
 3. Start pi — polling starts automatically.
-4. DM your bot once. pi will notify you with your Telegram user id; add `"allowedUserId": <id>` to the config and restart.
+4. DM your bot once. pi shows a warning with your Telegram user id; add `"allowedUserId": <id>` to the config and restart. The bot stays silent until authorized.
 
 ## Usage
 

@@ -30,6 +30,13 @@ interface ExtensionErrorRecord {
 	error: string;
 }
 
+interface ExtensionNotificationRecord {
+	type: "extension_ui_request";
+	method: "notify";
+	message: string;
+	notifyType?: "info" | "warning" | "error";
+}
+
 function isRpcResponse(value: unknown): value is RpcResponse {
 	return (
 		typeof value === "object" &&
@@ -53,6 +60,19 @@ function isExtensionError(value: unknown): value is ExtensionErrorRecord {
 		typeof value.event === "string" &&
 		"error" in value &&
 		typeof value.error === "string"
+	);
+}
+
+function isExtensionNotification(value: unknown): value is ExtensionNotificationRecord {
+	return (
+		typeof value === "object" &&
+		value !== null &&
+		"type" in value &&
+		value.type === "extension_ui_request" &&
+		"method" in value &&
+		value.method === "notify" &&
+		"message" in value &&
+		typeof value.message === "string"
 	);
 }
 
@@ -200,12 +220,28 @@ type FakeTelegramServer = Awaited<ReturnType<typeof startFakeTelegramServer>>;
 
 type PiProcessHarnessOptions = FauxScript & {
 	thinkingLevel?: ModelThinkingLevel;
+	telegramConfig?: {
+		allowedUserId?: number;
+		lastUpdateId?: number;
+	};
+	preloadedTelegramMessages?: Array<{
+		text: string;
+		chatId?: number;
+		userId?: number;
+	}>;
 };
 
 interface PiProcessHarness {
-	readonly telegram: Pick<FakeTelegramServer, "receiveText" | "waitForText">;
+	readonly telegram: Pick<
+		FakeTelegramServer,
+		"getSentTextCount" | "receiveText" | "waitForText" | "waitForUpdateConsumed"
+	>;
 	readonly extensionErrors: readonly ExtensionErrorRecord[];
 	getState(): Promise<RpcSessionState>;
+	waitForNotification(
+		predicate: (notification: ExtensionNotificationRecord) => boolean,
+		timeout?: number,
+	): Promise<ExtensionNotificationRecord>;
 	getFauxCalls(): Promise<FauxTraceEntry[]>;
 	waitForFauxCalls(count: number, timeout?: number): Promise<FauxTraceEntry[]>;
 	waitForIdle(timeout?: number): Promise<void>;
@@ -213,7 +249,12 @@ interface PiProcessHarness {
 }
 
 export async function createPiProcessHarness(options: PiProcessHarnessOptions): Promise<PiProcessHarness> {
-	const { thinkingLevel = "high", ...script } = options;
+	const {
+		thinkingLevel = "high",
+		telegramConfig = { allowedUserId: 42, lastUpdateId: 0 },
+		preloadedTelegramMessages = [],
+		...script
+	} = options;
 	const root = await mkdtemp(join(tmpdir(), "pi-telegram-process-test-"));
 	const home = join(root, "home");
 	const agentDir = join(home, ".pi", "agent");
@@ -221,11 +262,18 @@ export async function createPiProcessHarness(options: PiProcessHarnessOptions): 
 	const scriptPath = join(root, "faux-script.json");
 	const tracePath = join(root, "faux-trace.jsonl");
 	const telegram = await startFakeTelegramServer();
+	let lastPreloadedUpdateId: number | undefined;
+	for (const message of preloadedTelegramMessages) {
+		lastPreloadedUpdateId = telegram.receiveText(message.text, {
+			...(message.chatId !== undefined ? { chatId: message.chatId } : {}),
+			...(message.userId !== undefined ? { userId: message.userId } : {}),
+		});
+	}
 	await Promise.all([mkdir(agentDir, { recursive: true }), mkdir(cwd, { recursive: true })]);
 	await Promise.all([
 		writeFile(
 			join(agentDir, "telegram.json"),
-			`${JSON.stringify({ botToken: "test-token", apiRoot: telegram.apiRoot, allowedUserId: 42, lastUpdateId: 0 }, null, 2)}\n`,
+			`${JSON.stringify({ botToken: "test-token", apiRoot: telegram.apiRoot, ...telegramConfig }, null, 2)}\n`,
 		),
 		writeFile(scriptPath, `${JSON.stringify(script, null, 2)}\n`),
 		writeFile(tracePath, ""),
@@ -290,6 +338,7 @@ export async function createPiProcessHarness(options: PiProcessHarnessOptions): 
 	try {
 		await rpc.commandData({ type: "get_state" });
 		await telegram.waitForCall((call) => call.method === "getUpdates");
+		if (lastPreloadedUpdateId !== undefined) await telegram.waitForUpdateConsumed(lastPreloadedUpdateId);
 	} catch (error) {
 		const fauxTrace = await readFile(tracePath, "utf8");
 		const diagnostics = [
@@ -305,8 +354,10 @@ export async function createPiProcessHarness(options: PiProcessHarnessOptions): 
 	}
 
 	const telegramClient: PiProcessHarness["telegram"] = {
+		getSentTextCount: () => telegram.getSentTextCount(),
 		receiveText: (text, receiveOptions) => telegram.receiveText(text, receiveOptions),
 		waitForText: (predicate, timeout) => telegram.waitForText(predicate, timeout),
+		waitForUpdateConsumed: (updateId, timeout) => telegram.waitForUpdateConsumed(updateId, timeout),
 	};
 	let disposed = false;
 	return {
@@ -315,6 +366,8 @@ export async function createPiProcessHarness(options: PiProcessHarnessOptions): 
 			return rpc.extensionErrors;
 		},
 		getState: () => rpc.commandData<RpcSessionState>({ type: "get_state" }),
+		waitForNotification: (predicate, timeout = 5_000) =>
+			waitFor(() => rpc.records.filter(isExtensionNotification).find(predicate), "extension notification", timeout),
 		getFauxCalls: readFauxCalls,
 		waitForFauxCalls: (count, timeout = 5_000) =>
 			waitFor(

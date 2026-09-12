@@ -84,7 +84,7 @@ class FakeTelegramServer {
 		return fake;
 	}
 
-	receiveText(text: string, options: { chatId?: number; userId?: number } = {}): void {
+	receiveText(text: string, options: { chatId?: number; userId?: number } = {}): number {
 		const chatId = options.chatId ?? 100;
 		const userId = options.userId ?? 42;
 		const message: TelegramMessage = {
@@ -93,8 +93,21 @@ class FakeTelegramServer {
 			from: { id: userId, is_bot: false, first_name: "Test" },
 			text,
 		};
-		this.#updates.push({ update_id: this.#nextUpdateId++, message });
+		const updateId = this.#nextUpdateId++;
+		this.#updates.push({ update_id: updateId, message });
 		this.#flushPolls();
+		return updateId;
+	}
+
+	async waitForUpdateConsumed(updateId: number, timeout = 5_000): Promise<void> {
+		await this.waitForCall(
+			(call) => call.method === "getUpdates" && typeof call.body.offset === "number" && call.body.offset > updateId,
+			timeout,
+		);
+	}
+
+	getSentTextCount(): number {
+		return this.#texts.length;
 	}
 
 	waitForCall(predicate: (call: TelegramHttpCall) => boolean, timeout = 5_000): Promise<TelegramHttpCall> {

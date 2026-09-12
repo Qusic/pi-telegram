@@ -32,7 +32,7 @@ function validateConfig(config: TelegramConfig): void {
 		throw new Error(
 			`Telegram bridge: ${CONFIG_PATH} missing "botToken". ` +
 				`Create the file with {"botToken": "<bot-token-from-BotFather>"} and restart. ` +
-				`Optionally set "allowedUserId" too — if omitted, the bot will report your user id when you first message it.`,
+				`Optionally set "allowedUserId" too — if omitted, pi will show the sender's user id as a warning when the bot first receives a DM.`,
 		);
 	}
 }
