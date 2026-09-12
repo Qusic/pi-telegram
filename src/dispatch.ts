@@ -77,7 +77,7 @@ export function createDispatcher(deps: DispatcherDeps): Dispatcher {
 		const reply = (text: string) => api.sendText(firstMessage.chat.id, text);
 		const requireIdle = async (action: string): Promise<boolean> => {
 			if (ctx.isIdle()) return true;
-			await reply(`Cannot ${action} while pi is busy. Send "stop" first.`);
+			await reply(`Cannot ${action} while pi is busy. Send /stop first.`);
 			return false;
 		};
 

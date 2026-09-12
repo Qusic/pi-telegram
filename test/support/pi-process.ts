@@ -208,6 +208,7 @@ interface PiProcessHarness {
 	getState(): Promise<RpcSessionState>;
 	getFauxCalls(): Promise<FauxTraceEntry[]>;
 	waitForFauxCalls(count: number, timeout?: number): Promise<FauxTraceEntry[]>;
+	waitForIdle(timeout?: number): Promise<void>;
 	dispose(): Promise<void>;
 }
 
@@ -324,6 +325,16 @@ export async function createPiProcessHarness(options: PiProcessHarnessOptions): 
 				`${count} faux provider call(s)`,
 				timeout,
 			),
+		waitForIdle: async (timeout = 5_000) => {
+			await waitFor(
+				async () => {
+					const state = await rpc.commandData<RpcSessionState>({ type: "get_state" });
+					return !state.isStreaming && !state.isCompacting && state.pendingMessageCount === 0 ? true : undefined;
+				},
+				"pi to become idle",
+				timeout,
+			);
+		},
 		dispose: async () => {
 			if (disposed) return;
 			disposed = true;

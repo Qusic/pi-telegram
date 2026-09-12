@@ -1,4 +1,5 @@
 import { appendFileSync, readFileSync } from "node:fs";
+import type { Api, Context, Model } from "@earendil-works/pi-ai";
 import { fauxAssistantMessage, fauxProvider } from "@earendil-works/pi-ai";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { FauxScript } from "../support/faux-script.ts";
@@ -19,25 +20,43 @@ const faux = fauxProvider({
 });
 
 faux.setResponses(
-	script.responses.slice(consumedResponses).map((response) => (context, options, _state, model) => {
-		if (tracePath) {
-			appendFileSync(
-				tracePath,
-				`${JSON.stringify({
-					model: { provider: model.provider, id: model.id },
-					systemPrompt: context.systemPrompt,
-					messages: context.messages,
-					tools: context.tools?.map((tool) => tool.name) ?? [],
-					reasoning: options?.reasoning,
-				})}\n`,
-			);
-		}
-		return fauxAssistantMessage(response.content, {
-			...(response.stopReason === undefined ? {} : { stopReason: response.stopReason }),
-			...(response.errorMessage === undefined ? {} : { errorMessage: response.errorMessage }),
-		});
-	}),
+	script.responses.slice(consumedResponses).map(
+		(response) => () =>
+			fauxAssistantMessage(response.content, {
+				...(response.stopReason === undefined ? {} : { stopReason: response.stopReason }),
+				...(response.errorMessage === undefined ? {} : { errorMessage: response.errorMessage }),
+			}),
+	),
 );
+
+function traceCall<TApi extends Api>(context: Context, options: unknown, model: Model<TApi>): void {
+	if (!tracePath) return;
+	const reasoning =
+		typeof options === "object" && options !== null && "reasoning" in options && typeof options.reasoning === "string"
+			? options.reasoning
+			: undefined;
+	appendFileSync(
+		tracePath,
+		`${JSON.stringify({
+			model: { provider: model.provider, id: model.id },
+			systemPrompt: context.systemPrompt,
+			messages: context.messages,
+			tools: context.tools?.map((tool) => tool.name) ?? [],
+			reasoning,
+		})}\n`,
+	);
+}
+
+const stream = faux.provider.stream.bind(faux.provider);
+faux.provider.stream = (model, context, options) => {
+	traceCall(context, options, model);
+	return stream(model, context, options);
+};
+const streamSimple = faux.provider.streamSimple.bind(faux.provider);
+faux.provider.streamSimple = (model, context, options) => {
+	traceCall(context, options, model);
+	return streamSimple(model, context, options);
+};
 
 export default function (pi: ExtensionAPI) {
 	pi.registerProvider(faux.provider);

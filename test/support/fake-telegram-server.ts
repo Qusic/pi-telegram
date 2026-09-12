@@ -100,8 +100,15 @@ class FakeTelegramServer {
 		return waitFor(() => this.#calls.find(predicate), "Telegram API call", timeout);
 	}
 
-	waitForText(predicate: (text: SentTelegramText) => boolean, timeout = 5_000): Promise<SentTelegramText> {
-		return waitFor(() => this.#texts.find(predicate), "Telegram text", timeout);
+	async waitForText(predicate: (text: SentTelegramText) => boolean, timeout = 5_000): Promise<SentTelegramText> {
+		try {
+			return await waitFor(() => this.#texts.find(predicate), "Telegram text", timeout);
+		} catch (error) {
+			throw new Error(
+				`${error instanceof Error ? error.message : String(error)}\nObserved: ${JSON.stringify(this.#texts)}`,
+				{ cause: error },
+			);
+		}
 	}
 
 	getDiagnostics(): unknown {
