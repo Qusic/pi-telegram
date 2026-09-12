@@ -145,10 +145,15 @@ export function createApi(config: Awaited<ReturnType<typeof createConfig>>) {
 	/** Send markdown as a native Rich Message, returning the sent message so callers
 	 *  can edit it later. Plain strings are valid markdown too, so this is also the
 	 *  channel for short system/status replies. */
-	async function sendText(chatId: number, markdown: string): Promise<TelegramSentMessage> {
+	async function sendText(
+		chatId: number,
+		markdown: string,
+		options?: { silent?: boolean },
+	): Promise<TelegramSentMessage> {
 		return await call<TelegramSentMessage>("sendRichMessage", {
 			chat_id: chatId,
 			rich_message: { markdown },
+			...(options?.silent ? { disable_notification: true } : {}),
 		});
 	}
 

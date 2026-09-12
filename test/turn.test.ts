@@ -49,18 +49,37 @@ test("thinking and tool calls are rendered through a real pi tool loop", async (
 	const preamble = await harness.telegram.waitForText(
 		(message) => message.kind === "message" && message.markdown.includes("checking command"),
 	);
+	const successfulToolStart = await harness.telegram.waitForText(
+		(message) =>
+			message.kind === "message" &&
+			message.markdown.startsWith("🔧 **read**") &&
+			message.markdown.includes(readableFixture) &&
+			!message.markdown.includes(missingFixture),
+	);
+	const failedToolStart = await harness.telegram.waitForText(
+		(message) =>
+			message.kind === "message" &&
+			message.markdown.startsWith("🔧 **read**") &&
+			message.markdown.includes(missingFixture),
+	);
 	const firstTool = await harness.telegram.waitForText(
 		(message) => message.kind === "edit" && message.markdown.includes("FIXTURE_SKILL_MARKER"),
 	);
 	const failedTool = await harness.telegram.waitForText(
 		(message) => message.kind === "edit" && message.markdown.startsWith("❌ **read**"),
 	);
-	await harness.telegram.waitForText((message) => message.kind === "message" && message.markdown === "Tool finished.");
+	const finalReply = await harness.telegram.waitForText(
+		(message) => message.kind === "message" && message.markdown === "Tool finished.",
+	);
 	await harness.waitForIdle();
 	const calls = await harness.getFauxCalls();
 
 	assert.equal(calls.length, 2);
 	assert.equal(preamble.markdown, "💭\nchecking command\n\n✏️\nRunning a command.");
+	assert.equal(preamble.silent, true);
+	assert.equal(successfulToolStart.silent, true);
+	assert.equal(failedToolStart.silent, true);
+	assert.equal(finalReply.silent, false);
 	assert.match(firstTool.markdown, /^✅ \*\*read\*\*/);
 	assert.match(failedTool.markdown, /SKILL\.md\.missing/);
 	assert.equal(calls[0]?.reasoning, "high");
@@ -90,11 +109,11 @@ test("a Telegram message received while busy steers the active run", async (t) =
 	assert.equal((await harness.getState()).isStreaming, true);
 	harness.telegram.receiveText("steer request");
 
-	await harness.telegram.waitForText(
+	const intermediateReply = await harness.telegram.waitForText(
 		(message) => message.kind === "message" && message.markdown === firstReply,
 		10_000,
 	);
-	await harness.telegram.waitForText(
+	const finalReply = await harness.telegram.waitForText(
 		(message) => message.kind === "message" && message.markdown === "answer after steering",
 		10_000,
 	);
@@ -102,6 +121,8 @@ test("a Telegram message received while busy steers the active run", async (t) =
 	const calls = await harness.getFauxCalls();
 
 	assert.equal(calls.length, 2);
+	assert.equal(intermediateReply.silent, true);
+	assert.equal(finalReply.silent, false);
 	assert.deepEqual(calls[1]?.messages.filter((message) => message.role === "user").map(userText), [
 		"initial request",
 		"steer request",
@@ -131,10 +152,11 @@ test("/stop aborts an active stream and the next Telegram turn recovers", async 
 	assert.equal((await harness.getState()).sessionId, sessionId);
 
 	harness.telegram.receiveText("/stop");
-	await harness.telegram.waitForText(
+	const stopReply = await harness.telegram.waitForText(
 		(message) => message.kind === "message" && message.markdown === "Aborted current turn.",
 	);
 	await harness.waitForIdle();
+	assert.equal(stopReply.silent, false);
 
 	harness.telegram.receiveText("request after stop");
 	await harness.telegram.waitForText((message) => message.kind === "message" && message.markdown === "recovered");
@@ -146,7 +168,13 @@ test("/stop aborts an active stream and the next Telegram turn recovers", async 
 
 test("provider errors are reported to Telegram without becoming extension errors", async (t) => {
 	const harness = await createPiProcessHarness({
-		responses: [{ content: [], stopReason: "error", errorMessage: "scripted permanent failure" }],
+		responses: [
+			{
+				content: "partial output before failure",
+				stopReason: "error",
+				errorMessage: "scripted permanent failure",
+			},
+		],
 	});
 	t.after(async () => {
 		await harness.dispose();
@@ -154,9 +182,14 @@ test("provider errors are reported to Telegram without becoming extension errors
 	});
 
 	harness.telegram.receiveText("failing request");
-	await harness.telegram.waitForText(
+	const partialReply = await harness.telegram.waitForText(
+		(message) => message.kind === "message" && message.markdown === "partial output before failure",
+	);
+	const errorReply = await harness.telegram.waitForText(
 		(message) => message.kind === "message" && message.markdown === "scripted permanent failure",
 	);
 	await harness.waitForIdle();
+	assert.equal(partialReply.silent, true);
+	assert.equal(errorReply.silent, false);
 	assert.equal((await harness.getFauxCalls()).length, 1);
 });

@@ -142,7 +142,7 @@ export function createTurn(deps: TurnDeps) {
 		// Finalize first so pre-tool text doesn't end up below the 🔧 message.
 		await preview.finalize();
 		const args = event.args as ToolArgs;
-		const sent = await api.sendText(active.chatId, renderToolStart(event.toolName, args));
+		const sent = await api.sendText(active.chatId, renderToolStart(event.toolName, args), { silent: true });
 		toolMessages.set(event.toolCallId, { id: sent.message_id, toolName: event.toolName, args });
 	});
 
@@ -167,8 +167,9 @@ export function createTurn(deps: TurnDeps) {
 		if (!turn) return;
 
 		const { stopReason, errorMessage } = event.messages.findLast(isAssistantMessage) ?? {};
-		// Always publish whatever streamed so far, then branch on the outcome.
-		const sent = await preview.finalize();
+		// Partial output before abort/error is progress; the error itself notifies.
+		const final = stopReason !== "aborted" && stopReason !== "error";
+		const sent = await preview.finalize(final);
 		if (stopReason === "aborted") return;
 		if (stopReason === "error") {
 			await api.sendText(turn.chatId, errorMessage || "Telegram bridge: pi failed while processing the request.");

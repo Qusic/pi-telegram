@@ -23,6 +23,7 @@ interface SentTelegramText {
 	chatId: number;
 	messageId: number;
 	markdown: string;
+	silent?: boolean;
 }
 
 async function readJson(request: IncomingMessage): Promise<Record<string, unknown>> {
@@ -156,6 +157,7 @@ class FakeTelegramServer {
 						chatId: Number(body.chat_id),
 						messageId,
 						markdown: this.#markdown(body),
+						silent: body.disable_notification === true,
 					});
 					apiResult(response, { message_id: messageId });
 					return;

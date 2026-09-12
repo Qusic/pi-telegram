@@ -24,6 +24,8 @@ const PREVIEW_THROTTLE_MS = 1500;
 // (```lang … ```): at most a couple of fence runs plus a language token.
 const CHUNK_BUDGET = MAX_MESSAGE_LENGTH - 64;
 
+type PreviewApi = Pick<ReturnType<typeof createApi>, "clearDraft" | "sendDraft" | "sendText">;
+
 interface TelegramPreviewState {
 	chatId: number;
 	/** Entire accumulated assistant text seen so far (monotonically grows). */
@@ -39,7 +41,7 @@ interface TelegramPreviewState {
 	flushTimer: ReturnType<typeof setTimeout> | undefined;
 }
 
-export function createPreview(api: ReturnType<typeof createApi>) {
+export function createPreview(api: PreviewApi) {
 	let current: TelegramPreviewState | undefined;
 
 	// Single-writer queue: every async preview op runs strictly one at a time,
@@ -74,7 +76,7 @@ export function createPreview(api: ReturnType<typeof createApi>) {
 			const to = nextBoundary(c.fullText, c.publishedChars, CHUNK_BUDGET);
 			const head = renderPending(c, to);
 			await clearDraft(c);
-			await api.sendText(c.chatId, head);
+			await api.sendText(c.chatId, head, { silent: true });
 			c.publishedChars = to;
 			c.published = true;
 			c.lastSentText = "";
@@ -116,21 +118,21 @@ export function createPreview(api: ReturnType<typeof createApi>) {
 		c.lastSentText = draft;
 	}
 
-	async function finalizeState(c: TelegramPreviewState): Promise<boolean> {
+	async function finalizeState(c: TelegramPreviewState, final: boolean): Promise<boolean> {
 		await promoteOversized(c);
 		const text = renderPending(c, c.fullText.length);
 		await clearDraft(c);
 		if (!text) return c.published;
-		await api.sendText(c.chatId, text);
+		await api.sendText(c.chatId, text, { silent: !final });
 		c.publishedChars = c.fullText.length;
 		c.published = true;
 		return true;
 	}
 
-	/** Publish any buffered text and reset. Returns true iff anything was
-	 *  committed as a real message over the preview's lifetime. Never rejects —
-	 *  a transient send failure must not break the turn lifecycle. */
-	function finalize(): Promise<boolean> {
+	/** Publish any buffered text and reset. Commits are silent unless `final` is
+	 *  true for a normal final answer. Returns true iff anything was committed
+	 *  as a real message over the preview's lifetime. Never rejects. */
+	function finalize(final = false): Promise<boolean> {
 		const c = current;
 		if (!c) return Promise.resolve(false);
 		if (c.flushTimer) {
@@ -140,7 +142,7 @@ export function createPreview(api: ReturnType<typeof createApi>) {
 		// Detach synchronously so any queued flush for this state no-ops and a
 		// subsequent assistant message starts a fresh preview.
 		current = undefined;
-		return enqueue(() => finalizeState(c)).catch(() => c.published);
+		return enqueue(() => finalizeState(c, final)).catch(() => c.published);
 	}
 
 	return { update, finalize };

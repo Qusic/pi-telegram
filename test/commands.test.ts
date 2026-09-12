@@ -10,9 +10,10 @@ test("unauthorized Telegram users cannot invoke the model", async (t) => {
 	});
 
 	harness.telegram.receiveText("intruder request", { userId: 999 });
-	await harness.telegram.waitForText(
+	const denial = await harness.telegram.waitForText(
 		(message) => message.kind === "message" && message.markdown === "This bot is not authorized for your account.",
 	);
+	assert.equal(denial.silent, false);
 	assert.deepEqual(await harness.getFauxCalls(), []);
 });
 
@@ -34,6 +35,7 @@ test("/status reports real session usage without invoking the model", async (t) 
 	);
 	await harness.waitForIdle();
 
+	assert.equal(status.silent, false);
 	assert.match(status.markdown, /\*\*Model\*\* — `pi-telegram-test\/faux-1`/);
 	assert.match(status.markdown, /\*\*Tokens\*\* — ↑\S+ ↓\S+/);
 	assert.match(status.markdown, /\*\*Context\*\* — \d+\.\d+% \/ 128k/);
