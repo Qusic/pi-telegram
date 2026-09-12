@@ -1,5 +1,10 @@
 # pi-telegram
 
+[![CI](https://github.com/Qusic/pi-telegram/actions/workflows/ci.yml/badge.svg?branch=main&event=push)](https://github.com/Qusic/pi-telegram/actions/workflows/ci.yml)
+[![npm](https://img.shields.io/npm/v/%40qusic%2Fpi-telegram)](https://www.npmjs.com/package/@qusic/pi-telegram)
+[![pi](https://img.shields.io/npm/dependency-version/%40qusic%2Fpi-telegram/dev/%40earendil-works%2Fpi-coding-agent?label=pi)](https://github.com/earendil-works/pi)
+[![License](https://img.shields.io/npm/l/%40qusic%2Fpi-telegram)](LICENSE)
+
 A Telegram DM bridge for [pi](https://pi.dev) — chat with your pi coding agent from anywhere through a Telegram bot. Based on [badlogic/pi-telegram](https://github.com/badlogic/pi-telegram), rewritten with AI (Claude `opus-4.7`) to better fit my personal preferences and needs.
 
 ## Features
