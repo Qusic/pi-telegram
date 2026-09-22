@@ -1,5 +1,5 @@
 import { appendFileSync, readFileSync } from "node:fs";
-import type { Api, Context, Model } from "@earendil-works/pi-ai";
+import type { Api, Model, TranscriptContext } from "@earendil-works/pi-ai";
 import { fauxAssistantMessage, fauxProvider } from "@earendil-works/pi-ai";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { FauxScript } from "../support/faux-script.ts";
@@ -29,7 +29,7 @@ faux.setResponses(
 	),
 );
 
-function traceCall<TApi extends Api>(context: Context, options: unknown, model: Model<TApi>): void {
+function traceCall<TApi extends Api>(context: TranscriptContext, options: unknown, model: Model<TApi>): void {
 	if (!tracePath) return;
 	const reasoning =
 		typeof options === "object" && options !== null && "reasoning" in options && typeof options.reasoning === "string"
@@ -39,9 +39,7 @@ function traceCall<TApi extends Api>(context: Context, options: unknown, model: 
 		tracePath,
 		`${JSON.stringify({
 			model: { provider: model.provider, id: model.id },
-			systemPrompt: context.systemPrompt,
 			messages: context.messages,
-			tools: context.tools?.map((tool) => tool.name) ?? [],
 			reasoning,
 		})}\n`,
 	);

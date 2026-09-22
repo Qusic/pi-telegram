@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { Message } from "@earendil-works/pi-ai";
+import { getCurrentSystemPrompt, getCurrentTools } from "@earendil-works/pi-ai/utils/transcript";
 import { createPiProcessHarness } from "./support/pi-process.ts";
 
 function userText(message: Message | undefined): string | undefined {
@@ -37,13 +38,13 @@ test("real pi process discovers and expands skills from Telegram", async (t) => 
 	assert.equal(calls.length, 1);
 	assert.equal(reply.chatId, 100);
 	assert.ok(call);
-	assert.match(call.systemPrompt, /fixture-skill/);
+	assert.match(getCurrentSystemPrompt(call.messages), /fixture-skill/);
 	const expandedSkill = userText(call.messages.at(-1));
 	assert.ok(expandedSkill);
 	assert.match(expandedSkill, /<skill name="fixture-skill"/);
 	assert.match(expandedSkill, /FIXTURE_SKILL_MARKER/);
 	assert.match(expandedSkill, /user arguments$/);
-	assert.ok(call.tools.includes("telegram_attach"));
+	assert.ok(getCurrentTools(call.messages).some((tool) => tool.name === "telegram_attach"));
 });
 
 test("real pi process rebinds Telegram after /new replaces the session", async (t) => {
@@ -139,7 +140,7 @@ test("/resume n switches to the listed session and rebinds Telegram", async (t) 
 	);
 	const resumedState = await harness.getState();
 	assert.equal(resumedState.sessionId, firstSession.sessionId);
-	assert.equal(resumedState.messageCount, 2);
+	assert.equal(resumedState.messageCount, 3);
 	assert.equal((await harness.getFauxCalls()).length, 2);
 
 	harness.telegram.receiveText("prompt after resume");

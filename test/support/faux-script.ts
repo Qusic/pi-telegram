@@ -14,8 +14,6 @@ export interface FauxScript {
 
 export interface FauxTraceEntry {
 	model: { provider: string; id: string };
-	systemPrompt: string;
 	messages: Message[];
-	tools: string[];
 	reasoning?: string;
 }
