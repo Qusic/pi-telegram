@@ -1,14 +1,15 @@
 // Turn lifecycle + pi event handlers (agent_*, message_*, tool_*). Registers
 // the telegram_attach tool. Media handling lives in media.ts.
 //
-// A Telegram request spans multiple pi turns; each turn_end closes one tool batch.
+// A Telegram request can span multiple pi turns and retries: turn_end closes
+// each tool batch, while agent_settled closes the Telegram request.
 // Concurrency: no local queue. Idle → stash as `pending`, sendUserMessage,
 // agent_start promotes to `active`. Busy → sendUserMessage with
 // deliverAs:"steer" to inject into the running turn.
 
 import { stat } from "node:fs/promises";
 import { basename } from "node:path";
-import type { ImageContent, TextContent } from "@earendil-works/pi-ai";
+import type { AssistantMessage, ImageContent, TextContent } from "@earendil-works/pi-ai";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import type { createApi } from "./api.ts";
@@ -24,6 +25,8 @@ interface TelegramTurn {
 	chatId: number;
 	queuedAttachments: QueuedAttachment[];
 	content: Array<TextContent | ImageContent>;
+	lastResponse?: { stopReason: AssistantMessage["stopReason"]; errorMessage: string | undefined };
+	abortRequested?: boolean;
 }
 
 interface TurnDeps {
@@ -150,20 +153,29 @@ export function createTurn(deps: TurnDeps) {
 		await toolMessages.finalize();
 	});
 
-	pi.on("agent_end", async (event, _ctx) => {
+	pi.on("agent_end", async (event) => {
 		await toolMessages.finalize();
+		if (!active) return;
+		const response = event.messages.findLast(isAssistantMessage);
+		if (response) active.lastResponse = { stopReason: response.stopReason, errorMessage: response.errorMessage };
+		// A failed attempt may be retried. Publish its partial output silently,
+		// but keep the Telegram turn active until pi is fully settled.
+		if (response?.stopReason === "error" || response?.stopReason === "aborted") await preview.finalize();
+	});
+
+	pi.on("agent_settled", async () => {
 		const turn = active;
+		// Detach before awaiting Telegram I/O so messages arriving now start a new turn.
+		active = undefined;
 		currentAbort = undefined;
 		stopTyping();
-		active = undefined;
-		pending = undefined;
+		if (pending) startTyping(pending.chatId);
 		if (!turn) return;
 
-		const { stopReason, errorMessage } = event.messages.findLast(isAssistantMessage) ?? {};
-		// Partial output before abort/error is progress; the error itself notifies.
-		const final = stopReason !== "aborted" && stopReason !== "error";
+		const { stopReason, errorMessage } = turn.lastResponse ?? {};
+		const final = !turn.abortRequested && stopReason !== "aborted" && stopReason !== "error";
 		const sent = await preview.finalize(final);
-		if (stopReason === "aborted") return;
+		if (turn.abortRequested || stopReason === "aborted") return;
 		if (stopReason === "error") {
 			await api.sendText(turn.chatId, errorMessage || "Telegram bridge: pi failed while processing the request.");
 			return;
@@ -176,9 +188,11 @@ export function createTurn(deps: TurnDeps) {
 
 	/** Dispatch a new batch of Telegram messages. Starts a fresh turn (if idle)
 	 *  or steers into the running one. */
-	async function handleIncoming(messages: TelegramMessage[], _ctx: ExtensionContext): Promise<void> {
+	async function handleIncoming(messages: TelegramMessage[], ctx: ExtensionContext): Promise<void> {
 		const built = await build(messages);
-		const isFresh = !pending && !active;
+		// Pi reports idle before settled handlers finish. A new Telegram message
+		// in that window belongs to the next run, not the previous run's steering.
+		const isFresh = !pending && (!active || ctx.isIdle());
 		if (isFresh) {
 			pending = built;
 			startTyping(built.chatId);
@@ -192,6 +206,7 @@ export function createTurn(deps: TurnDeps) {
 	/** Abort the active turn. Returns true iff one was active. */
 	function abort(): boolean {
 		if (currentAbort) {
+			if (active) active.abortRequested = true;
 			currentAbort();
 			return true;
 		}

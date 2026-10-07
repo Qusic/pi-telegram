@@ -20,7 +20,7 @@ interface DownloadedTelegramFile {
 	mimeType: string | undefined;
 }
 
-/** Outbound file queued by telegram_attach, sent on agent_end. */
+/** Outbound file queued by telegram_attach, sent when the agent settles. */
 export interface QueuedAttachment {
 	path: string;
 	fileName: string;

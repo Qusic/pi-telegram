@@ -76,6 +76,10 @@ function isExtensionNotification(value: unknown): value is ExtensionNotification
 	);
 }
 
+function hasRecordType(value: unknown, type: string): boolean {
+	return typeof value === "object" && value !== null && "type" in value && value.type === type;
+}
+
 async function waitFor<T>(
 	find: () => T | undefined | Promise<T | undefined>,
 	description: string,
@@ -221,6 +225,8 @@ type FakeTelegramServer = Awaited<ReturnType<typeof startFakeTelegramServer>>;
 type PiProcessHarnessOptions = FauxScript & {
 	thinkingLevel?: ModelThinkingLevel;
 	toolFixture?: boolean;
+	pauseFirstSettlement?: boolean;
+	retrySettings?: { maxRetries: number; baseDelayMs: number };
 	telegramConfig?: {
 		allowedUserId?: number;
 		lastUpdateId?: number;
@@ -245,6 +251,11 @@ interface PiProcessHarness {
 	): Promise<ExtensionNotificationRecord>;
 	getFauxCalls(): Promise<FauxTraceEntry[]>;
 	waitForFauxCalls(count: number, timeout?: number): Promise<FauxTraceEntry[]>;
+	waitForAutoRetryStart(timeout?: number): Promise<void>;
+	/** Unlike isIdle, this waits until extension agent_settled handlers finish. */
+	waitForAgentSettled(count: number, timeout?: number): Promise<void>;
+	waitForSettlementPause(timeout?: number): Promise<void>;
+	releaseSettlement(): Promise<void>;
 	waitForIdle(timeout?: number): Promise<void>;
 	dispose(): Promise<void>;
 }
@@ -253,6 +264,8 @@ export async function createPiProcessHarness(options: PiProcessHarnessOptions): 
 	const {
 		thinkingLevel = "high",
 		toolFixture = false,
+		pauseFirstSettlement = false,
+		retrySettings,
 		telegramConfig = { allowedUserId: 42, lastUpdateId: 0 },
 		preloadedTelegramMessages = [],
 		...script
@@ -263,6 +276,8 @@ export async function createPiProcessHarness(options: PiProcessHarnessOptions): 
 	const cwd = join(root, "project");
 	const scriptPath = join(root, "faux-script.json");
 	const tracePath = join(root, "faux-trace.jsonl");
+	const settlementReadyPath = join(root, "settlement-ready");
+	const settlementReleasePath = join(root, "settlement-release");
 	const telegram = await startFakeTelegramServer();
 	let lastPreloadedUpdateId: number | undefined;
 	for (const message of preloadedTelegramMessages) {
@@ -279,6 +294,9 @@ export async function createPiProcessHarness(options: PiProcessHarnessOptions): 
 		),
 		writeFile(scriptPath, `${JSON.stringify(script, null, 2)}\n`),
 		writeFile(tracePath, ""),
+		...(retrySettings
+			? [writeFile(join(agentDir, "settings.json"), `${JSON.stringify({ retry: retrySettings })}\n`)]
+			: []),
 	]);
 
 	const projectRoot = resolve(import.meta.dirname, "../..");
@@ -292,6 +310,7 @@ export async function createPiProcessHarness(options: PiProcessHarnessOptions): 
 			"rpc",
 			"--offline",
 			"--no-extensions",
+			...(pauseFirstSettlement ? ["--extension", join(projectRoot, "test", "fixtures", "settlement-pause.ts")] : []),
 			"--extension",
 			join(projectRoot, "src", "index.ts"),
 			"--extension",
@@ -324,6 +343,12 @@ export async function createPiProcessHarness(options: PiProcessHarnessOptions): 
 				PI_CODING_AGENT_DIR: agentDir,
 				PI_TELEGRAM_FAUX_SCRIPT: scriptPath,
 				PI_TELEGRAM_FAUX_TRACE: tracePath,
+				...(pauseFirstSettlement
+					? {
+							PI_TELEGRAM_SETTLEMENT_READY: settlementReadyPath,
+							PI_TELEGRAM_SETTLEMENT_RELEASE: settlementReleasePath,
+						}
+					: {}),
 			},
 			stdio: ["pipe", "pipe", "pipe"],
 		},
@@ -382,6 +407,28 @@ export async function createPiProcessHarness(options: PiProcessHarnessOptions): 
 				`${count} faux provider call(s)`,
 				timeout,
 			),
+		waitForAutoRetryStart: async (timeout = 5_000) => {
+			await waitFor(
+				() => rpc.records.some((record) => hasRecordType(record, "auto_retry_start")) || undefined,
+				"pi to begin an automatic retry",
+				timeout,
+			);
+		},
+		waitForAgentSettled: async (count, timeout = 5_000) => {
+			await waitFor(
+				() => rpc.records.filter((record) => hasRecordType(record, "agent_settled")).length >= count || undefined,
+				`${count} completed pi run(s)`,
+				timeout,
+			);
+		},
+		waitForSettlementPause: async (timeout = 5_000) => {
+			await waitFor(
+				async () => (await readFile(settlementReadyPath, "utf8").catch(() => undefined)) === "ready" || undefined,
+				"pi to enter a previous extension's agent_settled handler",
+				timeout,
+			);
+		},
+		releaseSettlement: () => writeFile(settlementReleasePath, ""),
 		waitForIdle: async (timeout = 5_000) => {
 			await waitFor(
 				async () => {

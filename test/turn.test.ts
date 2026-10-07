@@ -85,6 +85,128 @@ test("/stop aborts an active stream and the next Telegram turn recovers", async 
 	assert.equal(userText(calls[1]?.messages.at(-1)), "request after stop");
 });
 
+test("a transient provider failure reports only the successful retry", async (t) => {
+	const harness = await createPiProcessHarness({
+		retrySettings: { maxRetries: 1, baseDelayMs: 20 },
+		responses: [
+			{ content: "partial failed attempt", stopReason: "error", errorMessage: "503 retryable failure" },
+			{ content: "recovered after retry" },
+		],
+	});
+	t.after(async () => {
+		await harness.dispose();
+		assert.deepEqual(harness.extensionErrors, []);
+	});
+
+	harness.telegram.receiveText("request with a transient failure");
+	await harness.telegram.waitForText(
+		(message) => message.kind === "message" && message.markdown === "recovered after retry",
+	);
+	await harness.waitForAgentSettled(1);
+	assert.equal((await harness.getFauxCalls()).length, 2);
+	assert.deepEqual(
+		harness.telegram.getMessages().map(({ markdown, silent }) => ({ markdown, silent })),
+		[
+			{ markdown: "partial failed attempt", silent: true },
+			{ markdown: "recovered after retry", silent: false },
+		],
+	);
+});
+
+test("a message arriving during agent_settled starts a new Telegram turn", async (t) => {
+	const harness = await createPiProcessHarness({
+		pauseFirstSettlement: true,
+		responses: [{ content: "first settled reply" }, { content: "second settled reply" }],
+	});
+	t.after(async () => {
+		await harness.releaseSettlement();
+		await harness.dispose();
+		assert.deepEqual(harness.extensionErrors, []);
+	});
+
+	harness.telegram.receiveText("first settled request");
+	await harness.waitForSettlementPause();
+	assert.equal(harness.telegram.getMessages().length, 0);
+	const secondId = harness.telegram.receiveText("second settled request");
+	await harness.telegram.waitForUpdateConsumed(secondId);
+	assert.equal(harness.telegram.getMessages().length, 0);
+	await harness.releaseSettlement();
+	await harness.telegram.waitForText(
+		(message) => message.kind === "message" && message.markdown === "second settled reply",
+	);
+	await harness.waitForAgentSettled(2);
+	assert.deepEqual(
+		harness.telegram.getMessages().map(({ markdown, silent }) => ({ markdown, silent })),
+		[
+			{ markdown: "first settled reply", silent: false },
+			{ markdown: "second settled reply", silent: false },
+		],
+	);
+	assert.equal((await harness.getFauxCalls()).length, 2);
+});
+
+test("exhausted retries notify only the final provider error", async (t) => {
+	const harness = await createPiProcessHarness({
+		retrySettings: { maxRetries: 1, baseDelayMs: 20 },
+		responses: [
+			{ content: "partial attempt one", stopReason: "error", errorMessage: "503 first failure" },
+			{ content: "partial attempt two", stopReason: "error", errorMessage: "503 final failure" },
+		],
+	});
+	t.after(async () => {
+		await harness.dispose();
+		assert.deepEqual(harness.extensionErrors, []);
+	});
+
+	harness.telegram.receiveText("request that exhausts retries");
+	await harness.telegram.waitForText(
+		(message) => message.kind === "message" && message.markdown === "503 final failure",
+	);
+	await harness.waitForAgentSettled(1);
+	assert.equal((await harness.getFauxCalls()).length, 2);
+	assert.deepEqual(
+		harness.telegram.getMessages().map(({ markdown, silent }) => ({ markdown, silent })),
+		[
+			{ markdown: "partial attempt one", silent: true },
+			{ markdown: "partial attempt two", silent: true },
+			{ markdown: "503 final failure", silent: false },
+		],
+	);
+});
+
+test("/stop during retry backoff does not report the prior provider error", async (t) => {
+	const harness = await createPiProcessHarness({
+		retrySettings: { maxRetries: 1, baseDelayMs: 10_000 },
+		responses: [
+			{ content: "partial before retry", stopReason: "error", errorMessage: "503 retry paused" },
+			{ content: "should not run" },
+		],
+	});
+	t.after(async () => {
+		await harness.dispose();
+		assert.deepEqual(harness.extensionErrors, []);
+	});
+
+	harness.telegram.receiveText("request to abort during retry");
+	await harness.telegram.waitForText(
+		(message) => message.kind === "message" && message.markdown === "partial before retry",
+	);
+	await harness.waitForAutoRetryStart();
+	harness.telegram.receiveText("/stop");
+	await harness.telegram.waitForText(
+		(message) => message.kind === "message" && message.markdown === "Aborted current turn.",
+	);
+	await harness.waitForAgentSettled(1);
+	assert.equal((await harness.getFauxCalls()).length, 1);
+	assert.deepEqual(
+		harness.telegram.getMessages().map(({ markdown, silent }) => ({ markdown, silent })),
+		[
+			{ markdown: "partial before retry", silent: true },
+			{ markdown: "Aborted current turn.", silent: false },
+		],
+	);
+});
+
 test("provider errors are reported to Telegram without becoming extension errors", async (t) => {
 	const harness = await createPiProcessHarness({
 		responses: [
@@ -101,14 +223,16 @@ test("provider errors are reported to Telegram without becoming extension errors
 	});
 
 	harness.telegram.receiveText("failing request");
-	const partialReply = await harness.telegram.waitForText(
-		(message) => message.kind === "message" && message.markdown === "partial output before failure",
-	);
-	const errorReply = await harness.telegram.waitForText(
+	await harness.telegram.waitForText(
 		(message) => message.kind === "message" && message.markdown === "scripted permanent failure",
 	);
-	await harness.waitForIdle();
-	assert.equal(partialReply.silent, true);
-	assert.equal(errorReply.silent, false);
+	await harness.waitForAgentSettled(1);
+	assert.deepEqual(
+		harness.telegram.getMessages().map(({ markdown, silent }) => ({ markdown, silent })),
+		[
+			{ markdown: "partial output before failure", silent: true },
+			{ markdown: "scripted permanent failure", silent: false },
+		],
+	);
 	assert.equal((await harness.getFauxCalls()).length, 1);
 });
