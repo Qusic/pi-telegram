@@ -62,8 +62,10 @@ export function getMessageText(message: AssistantMessage): string {
 	let prevType: "text" | "thinking" = "text";
 	for (const block of message.content) {
 		if (block.type !== "text" && block.type !== "thinking") continue;
+		const content = block.type === "text" ? block.text : block.thinking;
+		if (!content.trim()) continue;
 		const marker = block.type === prevType ? "" : SECTION_MARKER[block.type];
-		parts.push(marker + (block.type === "text" ? block.text : block.thinking));
+		parts.push(marker + content);
 		prevType = block.type;
 	}
 	return parts.join("\n\n").trim();

@@ -138,6 +138,45 @@ for (const [toolName, mode] of [
 	});
 }
 
+test("empty thinking between tool rounds does not send a marker-only message", async (t) => {
+	const harness = await createPiProcessHarness({
+		toolFixture: true,
+		responses: [
+			{
+				content: { type: "toolCall", id: "first", name: "fixture_task", arguments: { label: "first" } },
+				stopReason: "toolUse",
+			},
+			{
+				content: [
+					{ type: "thinking", thinking: "" },
+					{ type: "toolCall", id: "second", name: "fixture_task", arguments: { label: "second" } },
+				],
+				stopReason: "toolUse",
+			},
+			{ content: "Finished after tools." },
+		],
+	});
+	t.after(async () => {
+		await harness.dispose();
+		assert.deepEqual(harness.extensionErrors, []);
+	});
+
+	harness.telegram.receiveText("run tools with empty thinking");
+	await harness.telegram.waitForText(
+		(message) => message.kind === "message" && message.markdown === "Finished after tools.",
+	);
+	await harness.waitForAgentSettled(1);
+	assert.equal((await harness.getFauxCalls()).length, 3);
+	assert.deepEqual(
+		harness.telegram.getMessages().map(({ markdown, silent }) => ({ markdown, silent })),
+		[
+			{ markdown: "✅ **fixture\\_task**", silent: true },
+			{ markdown: "✅ **fixture\\_task**", silent: true },
+			{ markdown: "Finished after tools.", silent: false },
+		],
+	);
+});
+
 test("a preflight-rejected tool and its following call remain in one batch", async (t) => {
 	const harness = await createPiProcessHarness({
 		toolFixture: true,
