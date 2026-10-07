@@ -54,7 +54,7 @@ test("tool batches are compact and keep thinking between real pi tool rounds", a
 		(message) =>
 			message.kind === "edit" &&
 			message.markdown.startsWith("✅ **read**") &&
-			message.markdown.includes("\n❌ **read**"),
+			message.markdown.includes("  \n❌ **read**"),
 	);
 	const finalReply = await harness.telegram.waitForText(
 		(message) => message.kind === "message" && message.markdown === "Tool finished.",
@@ -77,7 +77,7 @@ test("tool batches are compact and keep thinking between real pi tool rounds", a
 		messages.map((message) => message.silent),
 		[true, true, true, true, false],
 	);
-	assert.equal(firstBatch.markdown.split("\n").length, 2);
+	assert.equal(firstBatch.markdown.split("  \n").length, 2);
 	assert.match(firstBatch.markdown, /SKILL\.md\.missing/);
 	assert.doesNotMatch(firstBatch.markdown, /<details>|FIXTURE_SKILL_MARKER|ENOENT/);
 	assert.equal(calls[0]?.reasoning, "high");
@@ -128,7 +128,7 @@ for (const [toolName, mode] of [
 		assert.equal(messages[0]?.silent, true);
 		assert.equal(messages[1]?.silent, false);
 		const title = toolName.replace(/_/g, "\\_");
-		assert.deepEqual(messages[0]?.markdown.split("\n"), [`✅ **${title}**`, `✅ **${title}**`, `❌ **${title}**`]);
+		assert.deepEqual(messages[0]?.markdown.split("  \n"), [`✅ **${title}**`, `✅ **${title}**`, `❌ **${title}**`]);
 		const calls = await harness.getFauxCalls();
 		assert.equal(calls.length, 2);
 		assert.deepEqual(
@@ -165,7 +165,7 @@ test("a preflight-rejected tool and its following call remain in one batch", asy
 	const messages = harness.telegram.getMessages();
 	assert.equal(messages.length, 2);
 	assert.equal(messages[0]?.silent, true);
-	assert.equal(messages[0]?.markdown, "❌ **fixture\\_task**\n✅ **fixture\\_task**");
+	assert.equal(messages[0]?.markdown, "❌ **fixture\\_task**  \n✅ **fixture\\_task**");
 	assert.equal(messages[1]?.markdown, "Preflight complete.");
 	const calls = await harness.getFauxCalls();
 	assert.equal(calls.length, 2);
@@ -208,7 +208,7 @@ test("nested pi tool events stay in the parent batch without extra Telegram mess
 	assert.equal(messages.length, 2);
 	assert.equal(messages[0]?.silent, true);
 	assert.equal(messages[1]?.silent, false);
-	assert.deepEqual(messages[0]?.markdown.split("\n"), [
+	assert.deepEqual(messages[0]?.markdown.split("  \n"), [
 		"✅ **fixture\\_nested**",
 		"↳ ✅ **fixture\\_task**",
 		"↳ ❌ **fixture\\_task**",
@@ -245,7 +245,7 @@ test("/stop closes a running tool batch and the next Telegram request recovers",
 		(message) =>
 			message.kind === "edit" &&
 			message.markdown.startsWith("🔧 **fixture\\_task**") &&
-			message.markdown.includes("\n✅ **fixture\\_task**"),
+			message.markdown.includes("  \n✅ **fixture\\_task**"),
 	);
 	harness.telegram.receiveText("/stop");
 	await harness.telegram.waitForText(
@@ -254,7 +254,7 @@ test("/stop closes a running tool batch and the next Telegram request recovers",
 	await harness.waitForIdle();
 	const batch = harness.telegram.getMessages().find((message) => message.markdown.includes("**fixture\\_task**"));
 	assert.ok(batch);
-	assert.match(batch.markdown, /^❌ \*\*fixture\\_task\*\*.*\n✅ \*\*fixture\\_task\*\*/);
+	assert.match(batch.markdown, /^❌ \*\*fixture\\_task\*\*.* {2}\n✅ \*\*fixture\\_task\*\*/);
 	assert.doesNotMatch(batch.markdown, /🔧|HIDDEN_TOOL/);
 	assert.equal((await harness.getFauxCalls()).length, 1);
 

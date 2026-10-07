@@ -66,11 +66,11 @@ test("out-of-order completions keep compact source-ordered lines without input/o
 	assert.equal(messages[0]?.silent, true);
 	assert.equal(
 		messages[0]?.markdown,
-		"✅ **read** · `src/index.ts`\n" +
-			"❌ **bash** · `echo ʼhelloʼ && pnpm test`\n" +
-			"✅ **write** · `result.txt`\n" +
-			"✅ **edit** · `src/config.ts`\n" +
-			"✅ **grep** · `^TODO.*fix$`\n" +
+		"✅ **read** · `src/index.ts`  \n" +
+			"❌ **bash** · `echo ʼhelloʼ && pnpm te…`  \n" +
+			"✅ **write** · `result.txt`  \n" +
+			"✅ **edit** · `src/config.ts`  \n" +
+			"✅ **grep** · `^TODO.*fix$`  \n" +
 			"✅ **lookup**",
 	);
 	assert.equal(edits.length, 1);
@@ -109,7 +109,7 @@ test("unknown tool names remain safe Markdown without exposing arguments", async
 	assert.equal(messages[0]?.markdown, "✅ **custom\\_\\<probe\\>\\*ʼ**");
 });
 
-test("long paths retain the parent and filename while commands keep their start", async () => {
+test("long paths keep their tail while commands and tool names keep their start", async () => {
 	const { api, messages } = recordingApi();
 	const tools = createToolMessages(api);
 	await tools.start(100, call("read", "read", { path: `start/${"long/path/".repeat(80)}end.ts` }));
@@ -120,8 +120,8 @@ test("long paths retain the parent and filename while commands keep their start"
 	assert.ok(text);
 	const pathSummary = text.slice("✅ **read** · `".length, -1);
 	assert.match(pathSummary, /^…\/.*\/end\.ts$/);
-	assert.match(pathSummary, /long\/path\/long\/path\//);
-	assert.ok(pathSummary.length <= 96);
+	assert.match(pathSummary, /\/long\/path\/end\.ts$/);
+	assert.ok(pathSummary.length <= 24);
 	assert.equal(text.split("\n").length, 1);
 
 	await tools.start(100, call("emoji", "read", { path: `${"😀".repeat(90)}file.ts` }));
@@ -138,7 +138,7 @@ test("long paths retain the parent and filename while commands keep their start"
 	const windowsPath = messages[2]?.markdown;
 	assert.ok(windowsPath);
 	assert.match(windowsPath, /^✅ \*\*write\*\* · `…\/.*directory\/src\/index\.ts`$/);
-	assert.ok(windowsPath.slice("✅ **write** · `".length, -1).length <= 96);
+	assert.ok(windowsPath.slice("✅ **write** · `".length, -1).length <= 24);
 
 	await tools.start(100, call("command", "bash", { command: `echo ${"x".repeat(180)} TAIL` }));
 	tools.end("command", false);
@@ -147,6 +147,12 @@ test("long paths retain the parent and filename while commands keep their start"
 	assert.ok(command);
 	assert.match(command, /^✅ \*\*bash\*\* · `echo x+…`$/);
 	assert.doesNotMatch(command, /TAIL/);
+
+	const longName = `tool${"x".repeat(60)}`;
+	await tools.start(100, call("long-name", longName));
+	tools.end("long-name", false);
+	await tools.finalize();
+	assert.equal(messages[4]?.markdown, `✅ **${longName.slice(0, 23)}…**`);
 });
 
 test("an in-flight send cannot duplicate the group or overwrite concurrent completions", {
@@ -166,7 +172,7 @@ test("an in-flight send cannot duplicate the group or overwrite concurrent compl
 
 	assert.equal(messages.length, 1);
 	assert.equal(edits.length, 1);
-	assert.equal(messages[0]?.markdown, "✅ **read** · `first.ts`\n❌ **read** · `second.ts`");
+	assert.equal(messages[0]?.markdown, "✅ **read** · `first.ts`  \n❌ **read** · `second.ts`");
 });
 
 test("a completion during an in-flight edit is flushed later without overlapping edits", {
@@ -204,7 +210,7 @@ test("a completion during an in-flight edit is flushed later without overlapping
 	assert.equal(maximumInFlight, 1);
 	assert.equal(edits.length, 2);
 	assert.equal(messages.length, 1);
-	assert.equal(messages[0]?.markdown, "✅ **read** · `first.ts`\n❌ **read** · `second.ts`");
+	assert.equal(messages[0]?.markdown, "✅ **read** · `first.ts`  \n❌ **read** · `second.ts`");
 });
 
 test("finalization closes unfinished lines and discards late events", async () => {
@@ -336,7 +342,7 @@ test("oversized batches split on whole lines and status edits keep page membersh
 
 	assert.ok(messages.length > 1);
 	assert.ok(messages.every((message) => message.silent && message.markdown.length <= MAX_MESSAGE_LENGTH));
-	const lines = messages.flatMap((message) => message.markdown.split("\n"));
+	const lines = messages.flatMap((message) => message.markdown.split("  \n"));
 	assert.equal(lines.length, count);
 	for (let i = 0; i < count; i++) {
 		assert.ok(lines[i]?.startsWith(i % 3 === 0 ? "❌" : "✅"));

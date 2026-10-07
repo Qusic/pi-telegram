@@ -4,8 +4,11 @@
 import { type createApi, MAX_MESSAGE_LENGTH } from "./api.ts";
 
 const EDIT_THROTTLE_MS = 500;
-const NAME_MAX = 64;
-const SUMMARY_MAX = 96;
+// Heuristic for a compact mobile row; actual wrap depends on chat width and font.
+const NAME_MAX = 24;
+const SUMMARY_MAX = 24;
+// A bare newline is a soft break in GFM and can render as a space.
+const TOOL_LINE_BREAK = "  \n";
 
 const STATUS_ICON = {
 	running: "🔧",
@@ -121,7 +124,7 @@ export function createToolMessages(api: ToolApi) {
 
 	async function flush(batch: ToolBatch): Promise<void> {
 		for (const page of batch.pages) {
-			const text = page.lines.map(renderLine).join("\n");
+			const text = page.lines.map(renderLine).join(TOOL_LINE_BREAK);
 			if (text === page.lastText) continue;
 			try {
 				if (page.messageId === undefined) {
@@ -163,9 +166,9 @@ export function createToolMessages(api: ToolApi) {
 			status: "running",
 		};
 		batch.calls.set(call.toolCallId, line);
-		// Running and cancelled icons have the same length; reserve a newline
+		// Running and cancelled icons have the same length; reserve a break
 		// so status edits never move a line between pages.
-		const budget = renderLine(line).length + 1;
+		const budget = renderLine(line).length + TOOL_LINE_BREAK.length;
 		let page = batch.pages.at(-1);
 		if (!page || page.budget + budget > MAX_MESSAGE_LENGTH) {
 			page = { lines: [], budget: 0, messageId: undefined, lastText: "" };
