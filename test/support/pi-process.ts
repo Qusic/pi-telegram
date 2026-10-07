@@ -220,6 +220,7 @@ type FakeTelegramServer = Awaited<ReturnType<typeof startFakeTelegramServer>>;
 
 type PiProcessHarnessOptions = FauxScript & {
 	thinkingLevel?: ModelThinkingLevel;
+	toolFixture?: boolean;
 	telegramConfig?: {
 		allowedUserId?: number;
 		lastUpdateId?: number;
@@ -234,7 +235,7 @@ type PiProcessHarnessOptions = FauxScript & {
 interface PiProcessHarness {
 	readonly telegram: Pick<
 		FakeTelegramServer,
-		"getSentTextCount" | "receiveText" | "waitForText" | "waitForUpdateConsumed"
+		"getMessages" | "getSentTextCount" | "receiveText" | "waitForText" | "waitForUpdateConsumed"
 	>;
 	readonly extensionErrors: readonly ExtensionErrorRecord[];
 	getState(): Promise<RpcSessionState>;
@@ -251,6 +252,7 @@ interface PiProcessHarness {
 export async function createPiProcessHarness(options: PiProcessHarnessOptions): Promise<PiProcessHarness> {
 	const {
 		thinkingLevel = "high",
+		toolFixture = false,
 		telegramConfig = { allowedUserId: 42, lastUpdateId: 0 },
 		preloadedTelegramMessages = [],
 		...script
@@ -294,6 +296,7 @@ export async function createPiProcessHarness(options: PiProcessHarnessOptions): 
 			join(projectRoot, "src", "index.ts"),
 			"--extension",
 			join(projectRoot, "test", "fixtures", "faux-provider.ts"),
+			...(toolFixture ? ["--extension", join(projectRoot, "test", "fixtures", "tool-batch.ts")] : []),
 			"--no-skills",
 			"--skill",
 			join(projectRoot, "test", "fixtures", "skills", "fixture-skill", "SKILL.md"),
@@ -354,6 +357,7 @@ export async function createPiProcessHarness(options: PiProcessHarnessOptions): 
 	}
 
 	const telegramClient: PiProcessHarness["telegram"] = {
+		getMessages: () => telegram.getMessages(),
 		getSentTextCount: () => telegram.getSentTextCount(),
 		receiveText: (text, receiveOptions) => telegram.receiveText(text, receiveOptions),
 		waitForText: (predicate, timeout) => telegram.waitForText(predicate, timeout),

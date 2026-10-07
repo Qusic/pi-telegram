@@ -1,6 +1,7 @@
 // Turn lifecycle + pi event handlers (agent_*, message_*, tool_*). Registers
 // the telegram_attach tool. Media handling lives in media.ts.
 //
+// A Telegram request spans multiple pi turns; each turn_end closes one tool batch.
 // Concurrency: no local queue. Idle → stash as `pending`, sendUserMessage,
 // agent_start promotes to `active`. Busy → sendUserMessage with
 // deliverAs:"steer" to inject into the running turn.
@@ -13,7 +14,7 @@ import { Type } from "typebox";
 import type { createApi } from "./api.ts";
 import type { createMedia, QueuedAttachment } from "./media.ts";
 import type { createPreview } from "./preview.ts";
-import { type ResultBlock, renderToolEnd, renderToolStart, type ToolArgs } from "./toolcall.ts";
+import { createToolMessages } from "./toolcall.ts";
 import type { TelegramMessage } from "./types.ts";
 import { getMessageText, isAssistantMessage } from "./utils.ts";
 
@@ -34,14 +35,12 @@ interface TurnDeps {
 
 export function createTurn(deps: TurnDeps) {
 	const { pi, api, media, preview } = deps;
+	const toolMessages = createToolMessages(api);
 
 	let pending: TelegramTurn | undefined;
 	let active: TelegramTurn | undefined;
 	let currentAbort: (() => void) | undefined;
 	let typingInterval: ReturnType<typeof setInterval> | undefined;
-	// toolCallId → its breadcrumb message id and the args from tool_execution_start
-	// (the end event omits args, so we stash them to re-render the finished card).
-	const toolMessages = new Map<string, { id: number; toolName: string; args: ToolArgs }>();
 
 	function startTyping(chatId: number): void {
 		if (typingInterval) return;
@@ -111,11 +110,11 @@ export function createTurn(deps: TurnDeps) {
 	});
 
 	pi.on("session_shutdown", async (_event, _ctx) => {
+		await toolMessages.finalize();
 		await preview.finalize();
 		pending = undefined;
 		active = undefined;
 		currentAbort = undefined;
-		toolMessages.clear();
 		stopTyping();
 	});
 
@@ -139,31 +138,25 @@ export function createTurn(deps: TurnDeps) {
 
 	pi.on("tool_execution_start", async (event) => {
 		if (!active) return;
-		// Finalize first so pre-tool text doesn't end up below the 🔧 message.
 		await preview.finalize();
-		const args = event.args as ToolArgs;
-		const sent = await api.sendText(active.chatId, renderToolStart(event.toolName, args), { silent: true });
-		toolMessages.set(event.toolCallId, { id: sent.message_id, toolName: event.toolName, args });
+		await toolMessages.start(active.chatId, event);
 	});
 
-	pi.on("tool_execution_end", async (event) => {
-		if (!active) return;
-		const entry = toolMessages.get(event.toolCallId);
-		toolMessages.delete(event.toolCallId);
-		if (!entry) return;
-		const blocks = (Array.isArray(event.result?.content) ? event.result.content : []) as ResultBlock[];
-		const text = renderToolEnd(entry.toolName, entry.args, blocks, event.isError);
-		await api.editText(active.chatId, entry.id, text).catch(() => {});
+	pi.on("tool_execution_end", (event) => {
+		if (active) toolMessages.end(event.toolCallId, event.isError);
+	});
+
+	pi.on("turn_end", async () => {
+		await toolMessages.finalize();
 	});
 
 	pi.on("agent_end", async (event, _ctx) => {
+		await toolMessages.finalize();
 		const turn = active;
 		currentAbort = undefined;
 		stopTyping();
 		active = undefined;
 		pending = undefined;
-		// Drop any breadcrumbs whose tool never reported an end (e.g. aborted mid-run).
-		toolMessages.clear();
 		if (!turn) return;
 
 		const { stopReason, errorMessage } = event.messages.findLast(isAssistantMessage) ?? {};

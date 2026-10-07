@@ -1,5 +1,4 @@
-// Entry point. Pi reloads extensions on every session swap, so each module
-// returns a manager closure that owns its own state and event handlers.
+// Pi reloads the extension on session swaps, so these managers are session-scoped.
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { createApi } from "./api.ts";

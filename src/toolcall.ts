@@ -1,145 +1,200 @@
-// Render tool-call breadcrumbs as Telegram Rich Messages.
-//
-// One message per call, edited in place from "running" to done/error. Layout:
-//   <icon> **toolName** · `head`     ← summary; head inlined when short
-//   <details>head</details>          ← head as a code block instead, when long
-//   <details>body</details>          ← bulk field (content/edits), if any
-//   <details>arguments</details>     ← leftover options as JSON, if any
-//   <details>output</details>        ← result, auto-expanded when short/error
-//
-// Per-tool layout is declarative (see SPECS); unknown tools fall through to the
-// generic arguments block rather than us guessing field meanings. Rich Messages
-// parse markdown inside <details>.
-// See https://core.telegram.org/bots/api#rich-messages.
+// Compact tool breadcrumbs: one line per call, one silent message per batch.
+// Shared-message writes are serialized and coalesced; turn_end seals the batch.
 
-interface ToolSpec {
-	/** Field shown as the summary: inlined when short, a code block when long. */
-	head: string;
-	/** Bulky field always shown as its own code block (file content, edits…). */
-	body?: string;
-	/** Code-block language for head/body when rendered as a block. */
-	lang?: string;
+import { type createApi, MAX_MESSAGE_LENGTH } from "./api.ts";
+
+const EDIT_THROTTLE_MS = 500;
+const NAME_MAX = 64;
+const SUMMARY_MAX = 96;
+
+const STATUS_ICON = {
+	running: "🔧",
+	success: "✅",
+	error: "❌",
+	cancelled: "🚫", // batch closed without a tool_execution_end
+} as const;
+
+type ToolStatus = keyof typeof STATUS_ICON;
+
+type ToolApi = Pick<ReturnType<typeof createApi>, "sendText" | "editText">;
+
+interface ToolCall {
+	toolCallId: string;
+	toolName: string;
+	args: unknown;
+	parentToolCallId?: string;
 }
 
-// Field names are pi's built-in tool schemas; nothing here is guessed.
-const SPECS: Record<string, ToolSpec> = {
-	bash: { head: "command", lang: "sh" },
-	read: { head: "path" },
-	ls: { head: "path" },
-	grep: { head: "pattern" },
-	find: { head: "pattern" },
-	write: { head: "path", body: "content" },
-	edit: { head: "path", body: "edits", lang: "json" },
-};
-
-// Sizing knobs (UX, not technical caps — Telegram's hard limit is 32768 chars).
-const INLINE_MAX = 40; // head longer than this renders as a code block, not inline
-const FIELD_MAX = 2000; // head/body/arguments block budget
-const RESULT_MAX = 3000; // output block budget
-const AUTO_OPEN_CHARS = 280; // expand a section only if both this short…
-const AUTO_OPEN_LINES = 12; // …and this few lines
-
-export type ToolArgs = Record<string, unknown> | undefined;
-export interface ResultBlock {
-	type: string;
-	text?: string;
+interface ToolLine {
+	text: string;
+	nested: boolean;
+	status: ToolStatus;
 }
 
-// ---------- helpers ----------
-
-/** Wrap `body` in a fenced code block whose fence outruns any backtick run
- *  inside it, so content containing ``` can't break out of the block. */
-function fence(body: string, lang: string): string {
-	let longest = 0;
-	for (const run of body.match(/`+/g) ?? []) longest = Math.max(longest, run.length);
-	const ticks = "`".repeat(Math.max(3, longest + 1));
-	return `${ticks}${lang}\n${body}\n${ticks}`;
+interface ToolPage {
+	lines: ToolLine[];
+	budget: number;
+	messageId: number | undefined;
+	lastText: string;
 }
 
-/** Truncate to `max` chars, flagging how much was dropped. */
-function clip(text: string, max: number): string {
-	return text.length <= max ? text : `${text.slice(0, max).trimEnd()}\n… (+${text.length - max} chars)`;
+interface ToolBatch {
+	chatId: number;
+	calls: Map<string, ToolLine>;
+	pages: ToolPage[];
+	flushTimer: ReturnType<typeof setTimeout> | undefined;
 }
 
-/** Collapse to one line and strip backticks for safe use in an inline-code span. */
-function inlineHint(text: string): string {
-	return text.replace(/\s+/g, " ").replace(/`/g, "ʼ").trim();
+function oneLine(text: string): string {
+	// Parameters must not create extra tool rows.
+	return text.replace(/\s+/g, " ").trim();
 }
 
-/** Short enough to render expanded rather than collapsed. */
-function isShort(text: string): boolean {
-	return text.length <= AUTO_OPEN_CHARS && text.split("\n").length <= AUTO_OPEN_LINES;
+function neutralizeBackticks(text: string): string {
+	// Dynamic text must not open or close a Markdown code span.
+	return text.replaceAll("`", "ʼ");
 }
 
-/** A tappable <summary> over a fenced code block; short bodies auto-expand. */
-function block(
-	label: string,
-	body: string,
-	opts: { lang?: string | undefined; max?: number; open?: boolean } = {},
-): string {
-	const clipped = clip(body, opts.max ?? FIELD_MAX);
-	const open = opts.open || isShort(clipped) ? " open" : "";
-	return `<details${open}><summary>${label}</summary>\n\n${fence(clipped, opts.lang ?? "")}\n\n</details>`;
+function inlineCode(text: string): string {
+	return `\`${neutralizeBackticks(text)}\``;
 }
 
-/** A field value as code-block text: strings verbatim, JSON when possible. */
-function asCode(value: unknown): string {
-	if (typeof value === "string") return value;
-	try {
-		return JSON.stringify(value, null, 2) ?? String(value);
-	} catch {
-		return String(value);
+function boldToolName(name: string): string {
+	// Keep punctuation in custom tool names from becoming Markdown/HTML markup.
+	return `**${neutralizeBackticks(name).replace(/[\\*_~[\]<>]/g, "\\$&")}**`;
+}
+
+function shortenStart(text: string, max: number): string {
+	if (text.length <= max) return text;
+	// Don't split an emoji's UTF-16 surrogate pair at the cut.
+	return `${text.slice(0, max - 1).replace(/[\uD800-\uDBFF]$/, "")}…`;
+}
+
+function shortenPath(value: string, max: number): string {
+	const path = oneLine(value);
+	if (path.length <= max) return path;
+	const suffix = path.replaceAll("\\", "/").slice(-(max - 1));
+	const separator = suffix.indexOf("/");
+	// Keep as many complete trailing directories as fit. Only cut through the
+	// filename if that final segment alone exceeds the budget.
+	const tail = separator < 0 ? suffix.replace(/^[\uDC00-\uDFFF]/, "") : suffix.slice(separator);
+	return `…${tail}`;
+}
+
+function summarizeArgs(toolName: string, args: unknown): string {
+	if (!args || typeof args !== "object") return "";
+	const fields = args as Record<string, unknown>;
+	switch (toolName) {
+		case "read":
+		case "write":
+		case "edit":
+		case "ls":
+			return typeof fields.path === "string" ? shortenPath(fields.path, SUMMARY_MAX) : "";
+		case "bash":
+		case "powershell":
+			return typeof fields.command === "string" ? shortenStart(oneLine(fields.command), SUMMARY_MAX) : "";
+		case "grep":
+		case "find":
+			return typeof fields.pattern === "string" ? shortenStart(oneLine(fields.pattern), SUMMARY_MAX) : "";
+		case "telegram_attach": {
+			const paths = fields.paths;
+			return Array.isArray(paths) ? `${paths.length} file${paths.length === 1 ? "" : "s"}` : "";
+		}
+		default:
+			// Unknown schemas may contain bulk or sensitive fields; show only the name.
+			return "";
 	}
 }
 
-/** Flatten result content blocks, noting non-text blocks by type (e.g. `[image]`). */
-function resultText(blocks: ResultBlock[]): string {
-	return blocks
-		.map((b) => (b.type === "text" && typeof b.text === "string" ? b.text : `[${b.type}]`))
-		.join("\n")
-		.trim();
+function renderLine(line: ToolLine): string {
+	return `${line.nested ? "↳ " : ""}${STATUS_ICON[line.status]} ${line.text}`;
 }
 
-// ---------- renderer ----------
+export function createToolMessages(api: ToolApi) {
+	let current: ToolBatch | undefined;
+	let chain = Promise.resolve();
 
-/** Summary line + head/body/arguments sections, shared by start and end. */
-function header(icon: string, toolName: string, args: Record<string, unknown>): string[] {
-	const spec = SPECS[toolName];
-	const used = new Set<string>();
-	const sections: string[] = [];
+	function enqueue(task: () => Promise<void>): Promise<void> {
+		chain = chain.then(task).catch(() => {});
+		return chain;
+	}
 
-	let hint = "";
-	if (spec) {
-		const head = args[spec.head];
-		if (typeof head === "string" && head.length > 0) {
-			used.add(spec.head);
-			if (!head.includes("\n") && head.length <= INLINE_MAX) hint = inlineHint(head);
-			else sections.push(block(spec.head, head, { lang: spec.lang }));
-		}
-		if (spec.body && args[spec.body] != null) {
-			used.add(spec.body);
-			sections.push(block(spec.body, asCode(args[spec.body]), { lang: spec.lang }));
+	async function flush(batch: ToolBatch): Promise<void> {
+		for (const page of batch.pages) {
+			const text = page.lines.map(renderLine).join("\n");
+			if (text === page.lastText) continue;
+			try {
+				if (page.messageId === undefined) {
+					const sent = await api.sendText(batch.chatId, text, { silent: true });
+					page.messageId = sent.message_id;
+				} else {
+					await api.editText(batch.chatId, page.messageId, text);
+				}
+				page.lastText = text;
+			} catch {
+				// Breadcrumbs are best-effort. Retry this page on a later flush,
+				// but don't prevent the remaining pages from being written.
+			}
 		}
 	}
-	sections.unshift(`${icon} **${toolName}**${hint ? ` · \`${hint}\`` : ""}`);
 
-	// everything else: one generic JSON block (the whole arg set for unknown tools).
-	const rest = Object.fromEntries(Object.entries(args).filter(([k]) => !used.has(k)));
-	if (Object.keys(rest).length > 0) sections.push(block("arguments", asCode(rest), { lang: "json" }));
+	// Merge rapid tool starts/completions into one Telegram edit; the first
+	// message is sent immediately, and finalize() flushes without waiting.
+	function scheduleFlush(batch: ToolBatch): void {
+		if (batch.flushTimer) return;
+		batch.flushTimer = setTimeout(() => {
+			batch.flushTimer = undefined;
+			void enqueue(() => (current === batch ? flush(batch) : Promise.resolve()));
+		}, EDIT_THROTTLE_MS);
+	}
 
-	return sections;
-}
+	async function start(chatId: number, call: ToolCall): Promise<void> {
+		if (call.parentToolCallId && (current?.chatId !== chatId || !current.calls.has(call.parentToolCallId))) return;
+		// Record synchronously before any await; the writer queue preserves send order.
+		if (current && current.chatId !== chatId) void finalize();
+		current ??= { chatId, calls: new Map(), pages: [], flushTimer: undefined };
+		const batch = current;
+		if (batch.calls.has(call.toolCallId)) return;
+		const name = boldToolName(shortenStart(oneLine(call.toolName), NAME_MAX));
+		const args = summarizeArgs(call.toolName, call.args);
+		const line: ToolLine = {
+			text: `${name}${args ? ` · ${inlineCode(args)}` : ""}`,
+			nested: call.parentToolCallId !== undefined,
+			status: "running",
+		};
+		batch.calls.set(call.toolCallId, line);
+		// Running and cancelled icons have the same length; reserve a newline
+		// so status edits never move a line between pages.
+		const budget = renderLine(line).length + 1;
+		let page = batch.pages.at(-1);
+		if (!page || page.budget + budget > MAX_MESSAGE_LENGTH) {
+			page = { lines: [], budget: 0, messageId: undefined, lastText: "" };
+			batch.pages.push(page);
+		}
+		page.lines.push(line);
+		page.budget += budget;
+		if (page.messageId === undefined) await enqueue(() => flush(batch));
+		else scheduleFlush(batch);
+	}
 
-/** Breadcrumb for a tool that just started running. */
-export function renderToolStart(toolName: string, args: ToolArgs): string {
-	return header("🔧", toolName, args ?? {}).join("\n\n");
-}
+	function end(toolCallId: string, isError: boolean): void {
+		const batch = current;
+		const line = batch?.calls.get(toolCallId);
+		if (!batch || !line) return;
+		line.status = isError ? "error" : "success";
+		scheduleFlush(batch);
+	}
 
-/** Breadcrumb for a finished tool: same header (now ✅/❌) plus the output.
- *  Args come from the start event since the end event omits them. */
-export function renderToolEnd(toolName: string, args: ToolArgs, blocks: ResultBlock[], isError: boolean): string {
-	const sections = header(isError ? "❌" : "✅", toolName, args ?? {});
-	const result = resultText(blocks);
-	if (result) sections.push(block("output", result, { max: RESULT_MAX, open: isError }));
-	return sections.join("\n\n");
+	function finalize(): Promise<void> {
+		const batch = current;
+		if (!batch) return chain;
+		current = undefined;
+		if (batch.flushTimer) clearTimeout(batch.flushTimer);
+		for (const line of batch.calls.values()) {
+			if (line.status === "running") line.status = "cancelled";
+		}
+		return enqueue(() => flush(batch));
+	}
+
+	return { start, end, finalize };
 }

@@ -1,6 +1,5 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { fileURLToPath } from "node:url";
 import type { Message } from "@earendil-works/pi-ai";
 import { createPiProcessHarness } from "./support/pi-process.ts";
 
@@ -12,86 +11,6 @@ function userText(message: Message | undefined): string | undefined {
 		.map((block) => block.text)
 		.join("\n");
 }
-
-test("thinking and tool calls are rendered through a real pi tool loop", async (t) => {
-	const readableFixture = fileURLToPath(new URL("fixtures/skills/fixture-skill/SKILL.md", import.meta.url));
-	const missingFixture = `${readableFixture}.missing`;
-	const harness = await createPiProcessHarness({
-		responses: [
-			{
-				content: [
-					{ type: "thinking", thinking: "checking command" },
-					{ type: "text", text: "Running a command." },
-					{
-						type: "toolCall",
-						id: "read-1",
-						name: "read",
-						arguments: { path: readableFixture },
-					},
-					{
-						type: "toolCall",
-						id: "read-2",
-						name: "read",
-						arguments: { path: missingFixture },
-					},
-				],
-				stopReason: "toolUse",
-			},
-			{ content: "Tool finished." },
-		],
-	});
-	t.after(async () => {
-		await harness.dispose();
-		assert.deepEqual(harness.extensionErrors, []);
-	});
-
-	harness.telegram.receiveText("run a tool");
-	const preamble = await harness.telegram.waitForText(
-		(message) => message.kind === "message" && message.markdown.includes("checking command"),
-	);
-	const successfulToolStart = await harness.telegram.waitForText(
-		(message) =>
-			message.kind === "message" &&
-			message.markdown.startsWith("🔧 **read**") &&
-			message.markdown.includes(readableFixture) &&
-			!message.markdown.includes(missingFixture),
-	);
-	const failedToolStart = await harness.telegram.waitForText(
-		(message) =>
-			message.kind === "message" &&
-			message.markdown.startsWith("🔧 **read**") &&
-			message.markdown.includes(missingFixture),
-	);
-	const firstTool = await harness.telegram.waitForText(
-		(message) => message.kind === "edit" && message.markdown.includes("FIXTURE_SKILL_MARKER"),
-	);
-	const failedTool = await harness.telegram.waitForText(
-		(message) => message.kind === "edit" && message.markdown.startsWith("❌ **read**"),
-	);
-	const finalReply = await harness.telegram.waitForText(
-		(message) => message.kind === "message" && message.markdown === "Tool finished.",
-	);
-	await harness.waitForIdle();
-	const calls = await harness.getFauxCalls();
-
-	assert.equal(calls.length, 2);
-	assert.equal(preamble.markdown, "💭\nchecking command\n\n✏️\nRunning a command.");
-	assert.equal(preamble.silent, true);
-	assert.equal(successfulToolStart.silent, true);
-	assert.equal(failedToolStart.silent, true);
-	assert.equal(finalReply.silent, false);
-	assert.match(firstTool.markdown, /^✅ \*\*read\*\*/);
-	assert.match(failedTool.markdown, /SKILL\.md\.missing/);
-	assert.equal(calls[0]?.reasoning, "high");
-	const toolResults = calls[1]?.messages.filter((message) => message.role === "toolResult");
-	assert.deepEqual(
-		toolResults?.map((message) => ({ toolName: message.toolName, isError: message.isError })),
-		[
-			{ toolName: "read", isError: false },
-			{ toolName: "read", isError: true },
-		],
-	);
-});
 
 test("a Telegram message received while busy steers the active run", async (t) => {
 	const firstReply = "first streamed answer ".repeat(6).trim();

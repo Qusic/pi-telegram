@@ -18,6 +18,13 @@ interface TelegramHttpCall {
 	body: Record<string, unknown>;
 }
 
+interface SentTelegramMessage {
+	chatId: number;
+	messageId: number;
+	markdown: string;
+	silent: boolean;
+}
+
 interface SentTelegramText {
 	kind: "message" | "edit" | "draft" | "clear-draft";
 	chatId: number;
@@ -108,6 +115,25 @@ class FakeTelegramServer {
 
 	getSentTextCount(): number {
 		return this.#texts.length;
+	}
+
+	/** Delivered messages after applying edits, excluding ephemeral drafts. */
+	getMessages(): SentTelegramMessage[] {
+		const messages = new Map<number, SentTelegramMessage>();
+		for (const text of this.#texts) {
+			if (text.kind === "message") {
+				messages.set(text.messageId, {
+					chatId: text.chatId,
+					messageId: text.messageId,
+					markdown: text.markdown,
+					silent: text.silent === true,
+				});
+			} else if (text.kind === "edit") {
+				const message = messages.get(text.messageId);
+				if (message) message.markdown = text.markdown;
+			}
+		}
+		return [...messages.values()];
 	}
 
 	waitForCall(predicate: (call: TelegramHttpCall) => boolean, timeout = 5_000): Promise<TelegramHttpCall> {
