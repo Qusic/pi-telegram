@@ -23,32 +23,32 @@ A Telegram DM bridge for [pi](https://pi.dev) — chat with your pi coding agent
 
 Auto-published as the bot menu at boot. Anything else is forwarded to pi as a user turn.
 
-| Command    | Description                                  |
-| ---------- | -------------------------------------------- |
-| `/new`     | Start a new pi session                       |
-| `/resume`  | List recent sessions; `/resumeN` to switch   |
-| `/stop`    | Abort the current turn                       |
-| `/status`  | Model, token usage, cost and context window  |
-| `/compact` | Compact the conversation                     |
-| `/skills`  | List skills available to the agent           |
+| Command    | Description                                 |
+| ---------- | ------------------------------------------- |
+| `/new`     | Start a new pi session                      |
+| `/resume`  | List recent sessions; `/resumeN` to switch  |
+| `/stop`    | Abort the current turn                      |
+| `/status`  | Model, token usage, cost and context window |
+| `/compact` | Compact the conversation                    |
+| `/skills`  | List skills available to the agent          |
 
 Resuming a session echoes that session's last reply back to the chat, so it reflects where you left off (the TUI already shows the full history).
 
 ## Differences vs. upstream `badlogic/pi-telegram`
 
-| Area                  | Upstream                                                                        | This fork                                                                                                  |
-| --------------------- | ------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
-| Setup & lifecycle     | `/telegram-setup` / `/telegram-connect` / `/telegram-disconnect` commands; explicit per-session connect | No pi-side commands; you write `~/.pi/agent/telegram.json` yourself, polling auto-starts per session       |
-| Authorization         | First DM user is auto-paired                                                    | First DM sender id is shown as a warning in pi; unauthorized senders receive no response                   |
-| Commands & bot menu   | Telegram-side commands limited to `/status`, `/compact`, `stop`, `/help`, `/start`; no menu published | Adds `/new`, `/resume`, `/skills` and publishes the menu via `setMyCommands`; session switching from Telegram |
-| Concurrency           | Extra messages while busy are queued and dispatched after the current turn ends | Extra messages are steered into the running turn                                                           |
-| Aborted-turn replay   | After `stop`, queued messages are re-injected as a synthetic history block      | No replay — `stop` just aborts                                                                             |
-| Prompt prefix         | Each message prefixed with `[telegram]`, plus a system-prompt suffix            | Forwarded as-is                                                                                            |
-| Rendering             | Plain text only; URL preview cards enabled                                      | Native Rich Message (`sendRichMessage`, GitHub-Flavored Markdown) for every outgoing message                |
+| Area                  | Upstream                                                                                                                                              | This fork                                                                                                                                                      |
+| --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Setup & lifecycle     | `/telegram-setup` / `/telegram-connect` / `/telegram-disconnect` commands; explicit per-session connect                                               | No pi-side commands; you write `~/.pi/agent/telegram.json` yourself, polling auto-starts per session                                                           |
+| Authorization         | First DM user is auto-paired                                                                                                                          | First DM sender id is shown as a warning in pi; unauthorized senders receive no response                                                                       |
+| Commands & bot menu   | Telegram-side commands limited to `/status`, `/compact`, `stop`, `/help`, `/start`; no menu published                                                 | Adds `/new`, `/resume`, `/skills` and publishes the menu via `setMyCommands`; session switching from Telegram                                                  |
+| Concurrency           | Extra messages while busy are queued and dispatched after the current turn ends                                                                       | Extra messages are steered into the running turn                                                                                                               |
+| Aborted-turn replay   | After `stop`, queued messages are re-injected as a synthetic history block                                                                            | No replay — `stop` just aborts                                                                                                                                 |
+| Prompt prefix         | Each message prefixed with `[telegram]`, plus a system-prompt suffix                                                                                  | Forwarded as-is                                                                                                                                                |
+| Rendering             | Plain text only; URL preview cards enabled                                                                                                            | Native Rich Message (`sendRichMessage`, GitHub-Flavored Markdown) for every outgoing message                                                                   |
 | Streaming             | Probes `sendMessageDraft`, falls back to `sendMessage` + `editMessageText`; previews truncated at 4096 chars, full answer only appears at `agent_end` | `sendRichMessageDraft` live previews committed with `sendRichMessage`; oversized previews are promoted into real messages mid-stream so long answers grow live |
-| Tool call breadcrumbs | None                                                                            | Grouped progress that updates as tools run                                                                |
-| Thinking blocks       | Stripped                                                                        | Streamed, separated by 💭 / ✏️ markers                                                                     |
-| Status bar            | Rich colored status                                                             | Only transient polling errors                                                                              |
+| Tool call breadcrumbs | None                                                                                                                                                  | Grouped progress that updates as tools run                                                                                                                     |
+| Thinking blocks       | Stripped                                                                                                                                              | Streamed, separated by 💭 / ✏️ markers                                                                                                                         |
+| Status bar            | Rich colored status                                                                                                                                   | Only transient polling errors                                                                                                                                  |
 
 Media-group debouncing and the `telegram_attach` tool surface match upstream. Internally the fork is split into small manager closures instead of a single file.
 

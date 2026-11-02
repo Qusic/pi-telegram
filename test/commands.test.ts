@@ -76,7 +76,8 @@ test("/status reports real session usage without invoking the model", async (t) 
 
 	assert.equal(status.silent, false);
 	assert.match(status.markdown, /\*\*Model\*\* — `pi-telegram-test\/faux-1`/);
-	assert.match(status.markdown, /\*\*Tokens\*\* — ↑\S+ ↓\S+/);
+	// The faux provider reports prompt tokens as input (↑) or simulated cache traffic (R/W).
+	assert.match(status.markdown, /\*\*Tokens\*\* — (?=.*↓\d)(?=.*[↑RW]\d)/);
 	assert.match(status.markdown, /\*\*Context\*\* — \d+\.\d+% \/ 128k/);
 	assert.equal((await harness.getFauxCalls()).length, 1);
 });

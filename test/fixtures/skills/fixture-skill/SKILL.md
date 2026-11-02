@@ -1,4 +1,5 @@
 ---
+
 name: fixture-skill
 description: Deterministic skill used to verify discovery and explicit skill expansion in pi-telegram tests.
 ---
