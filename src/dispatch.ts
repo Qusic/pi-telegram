@@ -15,6 +15,7 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { type createApi, MAX_MESSAGE_LENGTH } from "./api.ts";
+import { buildPrompt } from "./prompt.ts";
 import type { createTurn } from "./turn.ts";
 import type { TelegramMessage } from "./types.ts";
 import { formatTokens, lastAssistantText } from "./utils.ts";
@@ -178,7 +179,8 @@ export function createDispatcher(deps: DispatcherDeps): Dispatcher {
 		}
 
 		// Default: forward as a regular agent turn.
-		await turn.handleIncoming(messages, ctx);
+		const prompt = await buildPrompt(api, messages);
+		turn.submit(firstMessage.chat.id, prompt, ctx);
 	};
 }
 

@@ -1,5 +1,6 @@
-// Turn lifecycle + pi event handlers (agent_*, message_*, tool_*). Media
-// handling lives in media.ts.
+// Turn lifecycle + pi event handlers (agent_*, message_*, tool_*): runs a
+// prompt built from Telegram messages (prompt.ts) and mirrors pi's output back
+// to the chat.
 //
 // A Telegram request can span multiple pi turns and retries: turn_end closes
 // each tool batch, while agent_settled closes the Telegram request.
@@ -10,15 +11,12 @@
 import type { AssistantMessage, ImageContent, TextContent } from "@earendil-works/pi-ai";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { createApi } from "./api.ts";
-import type { createMedia } from "./media.ts";
 import type { createPreview } from "./preview.ts";
 import { createToolMessages } from "./toolcall.ts";
-import type { TelegramMessage } from "./types.ts";
 import { getMessageText, isAssistantMessage } from "./utils.ts";
 
 interface TelegramTurn {
 	chatId: number;
-	content: Array<TextContent | ImageContent>;
 	lastResponse?: { stopReason: AssistantMessage["stopReason"]; errorMessage: string | undefined };
 	abortRequested?: boolean;
 }
@@ -26,12 +24,11 @@ interface TelegramTurn {
 interface TurnDeps {
 	pi: ExtensionAPI;
 	api: ReturnType<typeof createApi>;
-	media: ReturnType<typeof createMedia>;
 	preview: ReturnType<typeof createPreview>;
 }
 
 export function createTurn(deps: TurnDeps) {
-	const { pi, api, media, preview } = deps;
+	const { pi, api, preview } = deps;
 	const toolMessages = createToolMessages(api);
 
 	let pending: TelegramTurn | undefined;
@@ -58,16 +55,6 @@ export function createTurn(deps: TurnDeps) {
 		if (!typingInterval) return;
 		clearInterval(typingInterval);
 		typingInterval = undefined;
-	}
-
-	async function build(messages: TelegramMessage[]): Promise<TelegramTurn> {
-		const firstMessage = messages[0];
-		if (!firstMessage) throw new Error("Missing Telegram message for turn creation");
-		const content = await media.buildPromptContent(messages);
-		return {
-			chatId: firstMessage.chat.id,
-			content,
-		};
 	}
 
 	// ---------- pi handler registration ----------
@@ -140,18 +127,17 @@ export function createTurn(deps: TurnDeps) {
 		}
 	});
 
-	/** Dispatch a new batch of Telegram messages. Starts a fresh turn (if idle)
+	/** Send a prompt from a Telegram chat to pi. Starts a fresh turn (if idle)
 	 *  or steers into the running one. */
-	async function handleIncoming(messages: TelegramMessage[], ctx: ExtensionContext): Promise<void> {
-		const built = await build(messages);
+	function submit(chatId: number, prompt: Array<TextContent | ImageContent>, ctx: ExtensionContext): void {
 		// Pi reports idle before settled handlers finish. A new Telegram message
 		// in that window belongs to the next run, not the previous run's steering.
 		const isFresh = !pending && (!active || ctx.isIdle());
 		if (isFresh) {
-			pending = built;
-			startTyping(built.chatId);
+			pending = { chatId };
+			startTyping(chatId);
 		}
-		pi.sendUserMessage(built.content, {
+		pi.sendUserMessage(prompt, {
 			expandPromptTemplates: true,
 			...(isFresh ? {} : { deliverAs: "steer" }),
 		});
@@ -167,5 +153,5 @@ export function createTurn(deps: TurnDeps) {
 		return false;
 	}
 
-	return { handleIncoming, abort };
+	return { submit, abort };
 }
