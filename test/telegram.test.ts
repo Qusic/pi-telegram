@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { Message } from "@earendil-works/pi-ai";
-import { getCurrentSystemPrompt, getCurrentTools } from "@earendil-works/pi-ai/utils/transcript";
+import { getCurrentSystemPrompt } from "@earendil-works/pi-ai/utils/transcript";
 import { createPiProcessHarness } from "./support/pi-process.ts";
 
 function userText(message: Message | undefined): string | undefined {
@@ -44,7 +44,6 @@ test("real pi process discovers and expands skills from Telegram", async (t) => 
 	assert.match(expandedSkill, /<skill name="fixture-skill"/);
 	assert.match(expandedSkill, /FIXTURE_SKILL_MARKER/);
 	assert.match(expandedSkill, /user arguments$/);
-	assert.ok(getCurrentTools(call.messages).some((tool) => tool.name === "telegram_attach"));
 });
 
 test("real pi process rebinds Telegram after /new replaces the session", async (t) => {

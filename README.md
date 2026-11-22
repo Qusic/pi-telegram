@@ -13,7 +13,7 @@ A Telegram DM bridge for [pi](https://pi.dev) — chat with your pi coding agent
 - **Streamed replies** with live previews, including extended thinking (separated from the answer by 💭 / ✏️ markers); long answers grow incrementally instead of only appearing at the end
 - **Markdown rendering** to native Telegram formatting (headings, bold, italics, links, inline & fenced code, blockquotes, lists, tables, task lists, footnotes, LaTeX), robust to partial mid-stream snippets
 - **Attachments in**: photos, albums, documents, video, audio, voice, animations and stickers; images are inlined as image inputs, everything else is referenced by local path
-- **Attachments out**: a `telegram_attach` tool lets the agent send generated files with its reply
+- **Attachments out**: ask for a file and the agent sends it with an `attach` tool
 - **Tool call breadcrumbs**: grouped progress that updates as tools run
 - **Mid-turn steering**: messages sent while the agent is busy are injected into the running turn
 - **Typing indicator** while the agent is working
@@ -49,8 +49,9 @@ Resuming a session echoes that session's last reply back to the chat, so it refl
 | Tool call breadcrumbs | None                                                                                                                                                  | Grouped progress that updates as tools run                                                                                                                     |
 | Thinking blocks       | Stripped                                                                                                                                              | Streamed, separated by 💭 / ✏️ markers                                                                                                                         |
 | Status bar            | Rich colored status                                                                                                                                   | Only transient polling errors                                                                                                                                  |
+| Outgoing files        | `telegram_attach`, prompted for `[telegram]` messages; files wait for the reply                                                                       | `attach`, used when you ask; files are sent immediately, even from the TUI                                                                                     |
 
-Media-group debouncing and the `telegram_attach` tool surface match upstream. Internally the fork is split into small manager closures instead of a single file.
+Media-group debouncing matches upstream. Internally the fork is split into small manager closures instead of a single file.
 
 ## Install
 
@@ -80,7 +81,7 @@ pi -e git:github.com/Qusic/pi-telegram
 
 ## Usage
 
-Just chat with your bot. Text becomes the next pi turn; photos/files are downloaded and referenced in the prompt (images also inlined); ask pi for an artifact and it can call `telegram_attach` to send files back; `/stop` aborts.
+Just chat with your bot. Text becomes the next pi turn; photos/files are downloaded and referenced in the prompt (images also inlined); ask pi to send you a file and it calls `attach`; `/stop` aborts.
 
 ## License
 

@@ -2,6 +2,7 @@
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { createApi } from "./api.ts";
+import { createAttach } from "./attach.ts";
 import { createConfig } from "./config.ts";
 import { createDispatcher } from "./dispatch.ts";
 import { createMedia } from "./media.ts";
@@ -17,4 +18,5 @@ export default async function (pi: ExtensionAPI) {
 	const turn = createTurn({ pi, api, media, preview });
 	const dispatch = createDispatcher({ pi, api, turn });
 	createPolling({ pi, api, config, dispatch });
+	createAttach({ pi, api, config });
 }

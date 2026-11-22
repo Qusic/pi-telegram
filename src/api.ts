@@ -2,7 +2,7 @@
 
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import type { createConfig } from "./config.ts";
 import { guessMediaType, sanitizeFileName } from "./utils.ts";
 
@@ -49,6 +49,11 @@ interface TelegramSentMessage {
 	message_id: number;
 }
 
+/** An absent signal may be passed as `undefined`, e.g. straight from a tool's execute(). */
+interface CallOptions {
+	signal?: AbortSignal | undefined;
+}
+
 export function createApi(config: Awaited<ReturnType<typeof createConfig>>) {
 	const { apiRoot: configuredApiRoot, botToken } = config.get();
 	const apiRoot = (configuredApiRoot || "https://api.telegram.org").replace(/\/+$/, "");
@@ -67,7 +72,7 @@ export function createApi(config: Awaited<ReturnType<typeof createConfig>>) {
 	async function call<T>(
 		method: string,
 		body: Record<string, unknown> | (() => Promise<Response>),
-		opts?: { signal?: AbortSignal },
+		opts?: CallOptions,
 	): Promise<T> {
 		const signal = opts?.signal;
 		const makeRequest =
@@ -114,8 +119,7 @@ export function createApi(config: Awaited<ReturnType<typeof createConfig>>) {
 		fields: Record<string, string>,
 		fileField: string,
 		filePath: string,
-		fileName: string,
-		opts?: { signal?: AbortSignal },
+		opts?: CallOptions,
 	): Promise<T> {
 		// Read once; rebuild the FormData per attempt (a consumed body can't be reused).
 		const blob = new Blob([await readFile(filePath)]);
@@ -124,7 +128,7 @@ export function createApi(config: Awaited<ReturnType<typeof createConfig>>) {
 			() => {
 				const form = new FormData();
 				for (const [key, value] of Object.entries(fields)) form.set(key, value);
-				form.set(fileField, blob, fileName);
+				form.set(fileField, blob, basename(filePath));
 				return fetch(baseUrl + method, { method: "POST", body: form, signal: opts?.signal ?? null });
 			},
 			opts,
@@ -193,11 +197,11 @@ export function createApi(config: Awaited<ReturnType<typeof createConfig>>) {
 	}
 
 	/** Upload a local file as photo (if recognised image mime) or generic document. */
-	async function sendAttachment(chatId: number, filePath: string, fileName: string): Promise<TelegramSentMessage> {
+	async function sendAttachment(chatId: number, filePath: string, opts?: CallOptions): Promise<TelegramSentMessage> {
 		const mediaType = guessMediaType(filePath);
 		const method = mediaType ? "sendPhoto" : "sendDocument";
 		const fieldName = mediaType ? "photo" : "document";
-		return await callMultipart<TelegramSentMessage>(method, { chat_id: String(chatId) }, fieldName, filePath, fileName);
+		return await callMultipart<TelegramSentMessage>(method, { chat_id: String(chatId) }, fieldName, filePath, opts);
 	}
 
 	return { call, download, sendText, editText, sendDraft, clearDraft, sendAttachment };

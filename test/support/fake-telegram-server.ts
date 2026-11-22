@@ -33,11 +33,23 @@ interface SentTelegramText {
 	silent?: boolean;
 }
 
-async function readJson(request: IncomingMessage): Promise<Record<string, unknown>> {
+interface SentTelegramAttachment {
+	method: "sendDocument" | "sendPhoto";
+	chatId: number;
+	fileName: string;
+	content: string;
+}
+
+/** JSON bodies, or multipart uploads (file fields stay `File`s). */
+async function readBody(request: IncomingMessage): Promise<Record<string, unknown>> {
 	const chunks: Buffer[] = [];
 	for await (const chunk of request) chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
 	if (chunks.length === 0) return {};
-	return JSON.parse(Buffer.concat(chunks).toString("utf8")) as Record<string, unknown>;
+	const raw = Buffer.concat(chunks);
+	const contentType = request.headers["content-type"] ?? "";
+	if (!contentType.startsWith("multipart/form-data"))
+		return JSON.parse(raw.toString("utf8")) as Record<string, unknown>;
+	return Object.fromEntries(await new Response(raw, { headers: { "content-type": contentType } }).formData());
 }
 
 function writeJson(response: ServerResponse, value: unknown, status = 200): void {
@@ -67,6 +79,7 @@ class FakeTelegramServer {
 	#paths: string[] = [];
 	#calls: TelegramHttpCall[] = [];
 	#texts: SentTelegramText[] = [];
+	#attachments: SentTelegramAttachment[] = [];
 	#nextUpdateId = 1;
 	#nextIncomingMessageId = 1;
 	#nextOutgoingMessageId = 1;
@@ -140,6 +153,10 @@ class FakeTelegramServer {
 		return waitFor(() => this.#calls.find(predicate), "Telegram API call", timeout);
 	}
 
+	getAttachments(): SentTelegramAttachment[] {
+		return [...this.#attachments];
+	}
+
 	async waitForText(predicate: (text: SentTelegramText) => boolean, timeout = 5_000): Promise<SentTelegramText> {
 		try {
 			return await waitFor(() => this.#texts.find(predicate), "Telegram text", timeout);
@@ -179,7 +196,7 @@ class FakeTelegramServer {
 				return;
 			}
 
-			const body = await readJson(request);
+			const body = await readBody(request);
 			this.#calls.push({ method, body });
 			switch (method) {
 				case "getUpdates":
@@ -210,6 +227,19 @@ class FakeTelegramServer {
 						markdown: this.#markdown(body),
 					});
 					apiResult(response, { message_id: messageId });
+					return;
+				}
+				case "sendDocument":
+				case "sendPhoto": {
+					const file = body[method === "sendPhoto" ? "photo" : "document"];
+					if (!(file instanceof File)) throw new Error(`${method} without an uploaded file`);
+					this.#attachments.push({
+						method,
+						chatId: Number(body.chat_id),
+						fileName: file.name,
+						content: await file.text(),
+					});
+					apiResult(response, { message_id: this.#nextOutgoingMessageId++ });
 					return;
 				}
 				case "sendRichMessageDraft": {

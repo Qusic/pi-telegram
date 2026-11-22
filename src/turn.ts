@@ -1,5 +1,5 @@
-// Turn lifecycle + pi event handlers (agent_*, message_*, tool_*). Registers
-// the telegram_attach tool. Media handling lives in media.ts.
+// Turn lifecycle + pi event handlers (agent_*, message_*, tool_*). Media
+// handling lives in media.ts.
 //
 // A Telegram request can span multiple pi turns and retries: turn_end closes
 // each tool batch, while agent_settled closes the Telegram request.
@@ -7,23 +7,17 @@
 // agent_start promotes to `active`. Busy → sendUserMessage with
 // deliverAs:"steer" to inject into the running turn.
 
-import { stat } from "node:fs/promises";
-import { basename } from "node:path";
 import type { AssistantMessage, ImageContent, TextContent } from "@earendil-works/pi-ai";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { Type } from "typebox";
 import type { createApi } from "./api.ts";
-import type { createMedia, QueuedAttachment } from "./media.ts";
+import type { createMedia } from "./media.ts";
 import type { createPreview } from "./preview.ts";
 import { createToolMessages } from "./toolcall.ts";
 import type { TelegramMessage } from "./types.ts";
 import { getMessageText, isAssistantMessage } from "./utils.ts";
 
-const MAX_ATTACHMENTS_PER_TURN = 10;
-
 interface TelegramTurn {
 	chatId: number;
-	queuedAttachments: QueuedAttachment[];
 	content: Array<TextContent | ImageContent>;
 	lastResponse?: { stopReason: AssistantMessage["stopReason"]; errorMessage: string | undefined };
 	abortRequested?: boolean;
@@ -72,45 +66,11 @@ export function createTurn(deps: TurnDeps) {
 		const content = await media.buildPromptContent(messages);
 		return {
 			chatId: firstMessage.chat.id,
-			queuedAttachments: [],
 			content,
 		};
 	}
 
 	// ---------- pi handler registration ----------
-
-	pi.registerTool({
-		name: "telegram_attach",
-		label: "Telegram Attach",
-		description: "Queue one or more local files to be sent with the next Telegram reply.",
-		promptSnippet: "Queue local files to be sent with the next Telegram reply.",
-		promptGuidelines: [
-			"To send a file or generated artifact back to the user, call telegram_attach with its local path. Mentioning the path in plain text alone will not deliver the file.",
-		],
-		parameters: Type.Object({
-			paths: Type.Array(Type.String({ description: "Local file path to attach" }), {
-				minItems: 1,
-				maxItems: MAX_ATTACHMENTS_PER_TURN,
-			}),
-		}),
-		async execute(_toolCallId, params) {
-			if (!active) throw new Error("telegram_attach can only be used while replying to an active Telegram turn");
-			const added: string[] = [];
-			for (const inputPath of params.paths) {
-				const stats = await stat(inputPath);
-				if (!stats.isFile()) throw new Error(`Not a file: ${inputPath}`);
-				if (active.queuedAttachments.length >= MAX_ATTACHMENTS_PER_TURN) {
-					throw new Error(`Attachment limit reached (${MAX_ATTACHMENTS_PER_TURN})`);
-				}
-				active.queuedAttachments.push({ path: inputPath, fileName: basename(inputPath) });
-				added.push(inputPath);
-			}
-			return {
-				content: [{ type: "text", text: `Queued ${added.length} Telegram attachment(s).` }],
-				details: { paths: added },
-			};
-		},
-	});
 
 	pi.on("session_shutdown", async (_event, _ctx) => {
 		await toolMessages.finalize();
@@ -174,16 +134,10 @@ export function createTurn(deps: TurnDeps) {
 
 		const { stopReason, errorMessage } = turn.lastResponse ?? {};
 		const final = !turn.abortRequested && stopReason !== "aborted" && stopReason !== "error";
-		const sent = await preview.finalize(final);
-		if (turn.abortRequested || stopReason === "aborted") return;
-		if (stopReason === "error") {
+		await preview.finalize(final);
+		if (stopReason === "error" && !turn.abortRequested) {
 			await api.sendText(turn.chatId, errorMessage || "Telegram bridge: pi failed while processing the request.");
-			return;
 		}
-		if (!sent && turn.queuedAttachments.length > 0) {
-			await api.sendText(turn.chatId, "Attached requested file(s).");
-		}
-		await media.sendAttachments(turn.chatId, turn.queuedAttachments);
 	});
 
 	/** Dispatch a new batch of Telegram messages. Starts a fresh turn (if idle)

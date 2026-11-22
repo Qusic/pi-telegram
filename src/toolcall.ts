@@ -99,10 +99,6 @@ function summarizeArgs(toolName: string, args: unknown): string {
 		case "grep":
 		case "find":
 			return typeof fields.pattern === "string" ? shortenStart(oneLine(fields.pattern), SUMMARY_MAX) : "";
-		case "telegram_attach": {
-			const paths = fields.paths;
-			return Array.isArray(paths) ? `${paths.length} file${paths.length === 1 ? "" : "s"}` : "";
-		}
 		default:
 			// Unknown schemas may contain bulk or sensitive fields; show only the name.
 			return "";

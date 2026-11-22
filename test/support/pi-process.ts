@@ -241,9 +241,11 @@ type PiProcessHarnessOptions = FauxScript & {
 interface PiProcessHarness {
 	readonly telegram: Pick<
 		FakeTelegramServer,
-		"getMessages" | "getSentTextCount" | "receiveText" | "waitForText" | "waitForUpdateConsumed"
+		"getAttachments" | "getMessages" | "getSentTextCount" | "receiveText" | "waitForText" | "waitForUpdateConsumed"
 	>;
 	readonly extensionErrors: readonly ExtensionErrorRecord[];
+	/** Prompt pi directly, like typing in the TUI rather than messaging the bot. */
+	prompt(message: string): Promise<void>;
 	getState(): Promise<RpcSessionState>;
 	waitForNotification(
 		predicate: (notification: ExtensionNotificationRecord) => boolean,
@@ -382,6 +384,7 @@ export async function createPiProcessHarness(options: PiProcessHarnessOptions): 
 	}
 
 	const telegramClient: PiProcessHarness["telegram"] = {
+		getAttachments: () => telegram.getAttachments(),
 		getMessages: () => telegram.getMessages(),
 		getSentTextCount: () => telegram.getSentTextCount(),
 		receiveText: (text, receiveOptions) => telegram.receiveText(text, receiveOptions),
@@ -393,6 +396,9 @@ export async function createPiProcessHarness(options: PiProcessHarnessOptions): 
 		telegram: telegramClient,
 		get extensionErrors() {
 			return rpc.extensionErrors;
+		},
+		prompt: async (message) => {
+			await rpc.commandData({ type: "prompt", message });
 		},
 		getState: () => rpc.commandData<RpcSessionState>({ type: "get_state" }),
 		waitForNotification: (predicate, timeout = 5_000) =>

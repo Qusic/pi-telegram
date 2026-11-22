@@ -1,5 +1,4 @@
-// Download incoming attachments, build LLM prompt content from them, and
-// send outgoing files queued by the telegram_attach tool.
+// Download incoming attachments and build LLM prompt content from them.
 
 import { readFile } from "node:fs/promises";
 import type { ImageContent, TextContent } from "@earendil-works/pi-ai";
@@ -18,12 +17,6 @@ interface DownloadedTelegramFile {
 	path: string;
 	isImage: boolean;
 	mimeType: string | undefined;
-}
-
-/** Outbound file queued by telegram_attach, sent when the agent settles. */
-export interface QueuedAttachment {
-	path: string;
-	fileName: string;
 }
 
 export function createMedia(api: ReturnType<typeof createApi>) {
@@ -126,17 +119,5 @@ export function createMedia(api: ReturnType<typeof createApi>) {
 		return content;
 	}
 
-	/** Send queued outbound files to the chat, with text fallback on failure. */
-	async function sendAttachments(chatId: number, attachments: QueuedAttachment[]): Promise<void> {
-		for (const att of attachments) {
-			try {
-				await api.sendAttachment(chatId, att.path, att.fileName);
-			} catch (error) {
-				const message = error instanceof Error ? error.message : String(error);
-				await api.sendText(chatId, `Failed to send attachment ${att.fileName}: ${message}`);
-			}
-		}
-	}
-
-	return { buildPromptContent, sendAttachments };
+	return { buildPromptContent };
 }

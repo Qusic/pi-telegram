@@ -82,23 +82,6 @@ test("out-of-order completions keep compact source-ordered lines without input/o
 	);
 });
 
-test("telegram_attach reports file counts without showing their paths", async () => {
-	const { api, messages } = recordingApi();
-	const tools = createToolMessages(api);
-	await tools.start(100, call("one", "telegram_attach", { paths: ["/private/secret.txt"] }));
-	tools.end("one", false);
-	await tools.finalize();
-	await tools.start(100, call("two", "telegram_attach", { paths: ["/private/secret.txt", "/private/notes.pdf"] }));
-	tools.end("two", false);
-	await tools.finalize();
-
-	assert.deepEqual(
-		messages.map((message) => message.markdown),
-		["✅ **telegram\\_attach** · `1 file`", "✅ **telegram\\_attach** · `2 files`"],
-	);
-	assert.ok(messages.every((message) => message.silent));
-});
-
 test("unknown tool names remain safe Markdown without exposing arguments", async () => {
 	const { api, messages } = recordingApi();
 	const tools = createToolMessages(api);
