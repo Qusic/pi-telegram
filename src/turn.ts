@@ -7,7 +7,9 @@
 // Concurrency: no local queue. Idle → stash as `pending`, sendUserMessage,
 // agent_start promotes to `active`. Busy → sendUserMessage with
 // deliverAs:"steer" to inject into the running turn, adopting it if Telegram
-// did not start it (e.g. a TUI prompt).
+// did not start it (e.g. a TUI prompt). Known gap: if another extension's
+// input handler swallows the message, no run starts and `pending` waits for
+// the next one.
 
 import type { AssistantMessage, ImageContent, TextContent } from "@earendil-works/pi-ai";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";

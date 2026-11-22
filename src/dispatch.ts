@@ -178,6 +178,14 @@ export function createDispatcher(deps: DispatcherDeps): Dispatcher {
 			return;
 		}
 
+		// Extension commands may open dialogs only the TUI can answer, and the bridge
+		// cannot tell whether they start a run, so they stay in pi itself.
+		const command = rawText.match(/^\/\S+/)?.[0];
+		if (command && pi.getCommands().some((cmd) => cmd.source === "extension" && `/${cmd.name}` === command)) {
+			await reply(`${code(command)} is a pi command; run it in pi itself.`);
+			return;
+		}
+
 		// Default: forward as a regular agent turn. A location, contact etc. has nothing to forward.
 		const prompt = await buildPrompt(api, messages);
 		if (prompt.length > 0) turn.submit(firstMessage.chat.id, prompt, ctx);

@@ -77,6 +77,28 @@ test("a message with nothing to forward never reaches the model", async (t) => {
 	);
 });
 
+test("pi extension commands are refused instead of run from Telegram", async (t) => {
+	const harness = await createPiProcessHarness({ responses: [{ content: "private TUI reply" }] });
+	t.after(async () => {
+		await harness.dispose();
+		assert.deepEqual(harness.extensionErrors, []);
+	});
+	const refusal = "`/telegram-execute-action` is a pi command; run it in pi itself.";
+
+	// The bridge's own internal command is the extension command available here.
+	harness.telegram.receiveText("/telegram-execute-action");
+	await harness.telegram.waitForText((message) => message.kind === "message" && message.markdown === refusal);
+
+	// Nothing is left waiting for a run: the next TUI run stays out of Telegram.
+	await harness.prompt("tui task");
+	await harness.waitForAgentSettled(1);
+	assert.equal((await harness.getFauxCalls()).length, 1);
+	assert.deepEqual(
+		harness.telegram.getMessages().map((message) => message.markdown),
+		[refusal],
+	);
+});
+
 test("/status reports real session usage without invoking the model", async (t) => {
 	const harness = await createPiProcessHarness({ responses: [{ content: "status seed reply" }] });
 	t.after(async () => {
