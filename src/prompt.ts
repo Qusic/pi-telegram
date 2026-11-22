@@ -110,7 +110,7 @@ export async function buildPrompt(
 		prompt += "Attachments saved locally:";
 		for (const file of files) prompt += `\n- ${file.path}`;
 	}
-	content.push({ type: "text", text: prompt });
+	if (prompt) content.push({ type: "text", text: prompt });
 
 	for (const file of files) {
 		if (!file.isImage) continue;

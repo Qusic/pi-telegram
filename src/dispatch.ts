@@ -178,9 +178,9 @@ export function createDispatcher(deps: DispatcherDeps): Dispatcher {
 			return;
 		}
 
-		// Default: forward as a regular agent turn.
+		// Default: forward as a regular agent turn. A location, contact etc. has nothing to forward.
 		const prompt = await buildPrompt(api, messages);
-		turn.submit(firstMessage.chat.id, prompt, ctx);
+		if (prompt.length > 0) turn.submit(firstMessage.chat.id, prompt, ctx);
 	};
 }
 

@@ -56,6 +56,27 @@ test("unauthorized Telegram users are silently ignored", async (t) => {
 	assert.deepEqual(await harness.getFauxCalls(), []);
 });
 
+test("a message with nothing to forward never reaches the model", async (t) => {
+	const harness = await createPiProcessHarness({ responses: [{ content: "reply" }] });
+	t.after(async () => {
+		await harness.dispose();
+		assert.deepEqual(harness.extensionErrors, []);
+	});
+
+	// No text, caption or file, like a location or contact.
+	harness.telegram.receiveText("");
+	harness.telegram.receiveText("real request");
+	await harness.telegram.waitForText((message) => message.kind === "message" && message.markdown === "reply");
+	await harness.waitForIdle();
+
+	const calls = await harness.getFauxCalls();
+	assert.equal(calls.length, 1);
+	assert.deepEqual(
+		calls[0]?.messages.filter((message) => message.role === "user").map((message) => message.content),
+		[[{ type: "text", text: "real request" }]],
+	);
+});
+
 test("/status reports real session usage without invoking the model", async (t) => {
 	const harness = await createPiProcessHarness({ responses: [{ content: "status seed reply" }] });
 	t.after(async () => {
