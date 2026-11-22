@@ -48,6 +48,47 @@ test("a Telegram message received while busy steers the active run", async (t) =
 	]);
 });
 
+test("a Telegram message during a TUI run steers into it and gets the reply", async (t) => {
+	const harness = await createPiProcessHarness({
+		toolFixture: true,
+		responses: [
+			{
+				content: { type: "toolCall", id: "slow", name: "fixture_task", arguments: { label: "slow", delay: 800 } },
+				stopReason: "toolUse",
+			},
+			{ content: "answer after steering" },
+			{ content: "private TUI reply" },
+		],
+	});
+	t.after(async () => {
+		await harness.dispose();
+		assert.deepEqual(harness.extensionErrors, []);
+	});
+
+	await harness.prompt("tui task");
+	await harness.waitForFauxCalls(1);
+	harness.telegram.receiveText("question from telegram");
+	await harness.telegram.waitForText(
+		(message) => message.kind === "message" && message.markdown === "answer after steering",
+	);
+	await harness.waitForAgentSettled(1);
+	const calls = await harness.getFauxCalls();
+	assert.equal(calls.length, 2);
+	assert.deepEqual(calls[1]?.messages.filter((message) => message.role === "user").map(userText), [
+		"tui task",
+		"question from telegram",
+	]);
+
+	// Nothing is left behind: the next TUI run stays out of Telegram.
+	await harness.prompt("next tui task");
+	await harness.waitForAgentSettled(2);
+	assert.equal((await harness.getFauxCalls()).length, 3);
+	assert.deepEqual(
+		harness.telegram.getMessages().map(({ markdown, silent }) => ({ markdown, silent })),
+		[{ markdown: "answer after steering", silent: false }],
+	);
+});
+
 test("/stop aborts an active stream and the next Telegram turn recovers", async (t) => {
 	const harness = await createPiProcessHarness({
 		tokensPerSecond: 20,

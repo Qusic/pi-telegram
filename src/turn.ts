@@ -6,7 +6,8 @@
 // each tool batch, while agent_settled closes the Telegram request.
 // Concurrency: no local queue. Idle → stash as `pending`, sendUserMessage,
 // agent_start promotes to `active`. Busy → sendUserMessage with
-// deliverAs:"steer" to inject into the running turn.
+// deliverAs:"steer" to inject into the running turn, adopting it if Telegram
+// did not start it (e.g. a TUI prompt).
 
 import type { AssistantMessage, ImageContent, TextContent } from "@earendil-works/pi-ai";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
@@ -130,13 +131,12 @@ export function createTurn(deps: TurnDeps) {
 	/** Send a prompt from a Telegram chat to pi. Starts a fresh turn (if idle)
 	 *  or steers into the running one. */
 	function submit(chatId: number, prompt: Array<TextContent | ImageContent>, ctx: ExtensionContext): void {
-		// Pi reports idle before settled handlers finish. A new Telegram message
-		// in that window belongs to the next run, not the previous run's steering.
-		const isFresh = !pending && (!active || ctx.isIdle());
-		if (isFresh) {
-			pending = { chatId };
-			startTyping(chatId);
-		}
+		// Pi reports idle before settled handlers finish, so a message in that
+		// window starts the next run rather than steering the settling one.
+		const isFresh = !pending && ctx.isIdle();
+		if (isFresh) pending = { chatId };
+		else if (!pending) active ??= { chatId }; // adopt a run Telegram did not start, e.g. from the TUI
+		startTyping(chatId);
 		pi.sendUserMessage(prompt, {
 			expandPromptTemplates: true,
 			...(isFresh ? {} : { deliverAs: "steer" }),
