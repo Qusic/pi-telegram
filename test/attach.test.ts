@@ -38,15 +38,16 @@ function toolResults(messages: Message[] = []) {
 }
 
 test("attach sends each file to the authorized chat in call order", async (t) => {
-	const first = await writeFixtureFile(t, "first.txt", "FIRST");
 	const second = await writeFixtureFile(t, "second.txt", "SECOND");
 	const harness = await createPiProcessHarness({
-		responses: [attachCalls(first, second), { content: "Sent both files." }],
+		// The first path is relative to the session cwd and carries the "@" some models prepend.
+		responses: [attachCalls("@first.txt", second), { content: "Sent both files." }],
 	});
 	t.after(async () => {
 		await harness.dispose();
 		assert.deepEqual(harness.extensionErrors, []);
 	});
+	await writeFile(join(harness.cwd, "first.txt"), "FIRST");
 
 	// Prompted directly (like the TUI), not through Telegram.
 	await harness.prompt("send both files to me");

@@ -244,6 +244,8 @@ interface PiProcessHarness {
 		"getAttachments" | "getMessages" | "getSentTextCount" | "receiveText" | "waitForText" | "waitForUpdateConsumed"
 	>;
 	readonly extensionErrors: readonly ExtensionErrorRecord[];
+	/** The pi session's working directory. */
+	readonly cwd: string;
 	/** Prompt pi directly, like typing in the TUI rather than messaging the bot. */
 	prompt(message: string): Promise<void>;
 	getState(): Promise<RpcSessionState>;
@@ -397,6 +399,7 @@ export async function createPiProcessHarness(options: PiProcessHarnessOptions): 
 		get extensionErrors() {
 			return rpc.extensionErrors;
 		},
+		cwd,
 		prompt: async (message) => {
 			await rpc.commandData({ type: "prompt", message });
 		},

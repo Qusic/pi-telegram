@@ -1,6 +1,7 @@
 // The attach tool: sends a local file to the authorized user's DM (a DM's chat
 // id is the user id) as soon as it is called, from Telegram or the TUI alike.
 
+import { resolve } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import type { createApi } from "./api.ts";
@@ -28,8 +29,9 @@ export function createAttach(deps: AttachDeps): void {
 		}),
 		// One file per call; several calls run in order so files arrive as listed.
 		executionMode: "sequential",
-		async execute(_toolCallId, { path }, signal) {
-			await api.sendAttachment(chatId, path, { signal });
+		async execute(_toolCallId, { path }, signal, _onUpdate, ctx) {
+			// Like the built-in tools: drop a leading "@" and resolve against the session cwd.
+			await api.sendAttachment(chatId, resolve(ctx.cwd, path.replace(/^@/, "")), { signal });
 			return { content: [{ type: "text", text: "Sent the file to the user." }], details: undefined };
 		},
 	});
