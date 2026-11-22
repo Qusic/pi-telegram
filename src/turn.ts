@@ -11,7 +11,7 @@
 import type { AssistantMessage, ImageContent, TextContent } from "@earendil-works/pi-ai";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { createApi } from "./api.ts";
-import type { createPreview } from "./preview.ts";
+import { createPreview } from "./preview.ts";
 import { createToolMessages } from "./toolcall.ts";
 import { getMessageText, isAssistantMessage } from "./utils.ts";
 
@@ -24,11 +24,11 @@ interface TelegramTurn {
 interface TurnDeps {
 	pi: ExtensionAPI;
 	api: ReturnType<typeof createApi>;
-	preview: ReturnType<typeof createPreview>;
 }
 
 export function createTurn(deps: TurnDeps) {
-	const { pi, api, preview } = deps;
+	const { pi, api } = deps;
+	const preview = createPreview(api);
 	const toolMessages = createToolMessages(api);
 
 	let pending: TelegramTurn | undefined;

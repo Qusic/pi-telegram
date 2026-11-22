@@ -6,14 +6,12 @@ import { createAttach } from "./attach.ts";
 import { createConfig } from "./config.ts";
 import { createDispatcher } from "./dispatch.ts";
 import { createPolling } from "./polling.ts";
-import { createPreview } from "./preview.ts";
 import { createTurn } from "./turn.ts";
 
 export default async function (pi: ExtensionAPI) {
 	const config = await createConfig();
 	const api = createApi(config);
-	const preview = createPreview(api);
-	const turn = createTurn({ pi, api, preview });
+	const turn = createTurn({ pi, api });
 	const dispatch = createDispatcher({ pi, api, turn });
 	createPolling({ pi, api, config, dispatch });
 	createAttach({ pi, api, config });

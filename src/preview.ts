@@ -35,8 +35,6 @@ interface TelegramPreviewState {
 	publishedChars: number;
 	/** Last text pushed to the live draft (dedup guard). */
 	lastSentText: string;
-	/** True once anything has been committed as a real message. */
-	published: boolean;
 	draftId: number | undefined;
 	flushTimer: ReturnType<typeof setTimeout> | undefined;
 }
@@ -78,7 +76,6 @@ export function createPreview(api: PreviewApi) {
 			await clearDraft(c);
 			await api.sendText(c.chatId, head, { silent: true });
 			c.publishedChars = to;
-			c.published = true;
 			c.lastSentText = "";
 		}
 	}
@@ -91,7 +88,6 @@ export function createPreview(api: PreviewApi) {
 				fullText,
 				publishedChars: 0,
 				lastSentText: "",
-				published: false,
 				draftId: undefined,
 				flushTimer: undefined,
 			};
@@ -118,23 +114,20 @@ export function createPreview(api: PreviewApi) {
 		c.lastSentText = draft;
 	}
 
-	async function finalizeState(c: TelegramPreviewState, final: boolean): Promise<boolean> {
+	async function finalizeState(c: TelegramPreviewState, final: boolean): Promise<void> {
 		await promoteOversized(c);
 		const text = renderPending(c, c.fullText.length);
 		await clearDraft(c);
-		if (!text) return c.published;
+		if (!text) return;
 		await api.sendText(c.chatId, text, { silent: !final });
 		c.publishedChars = c.fullText.length;
-		c.published = true;
-		return true;
 	}
 
 	/** Publish any buffered text and reset. Commits are silent unless `final` is
-	 *  true for a normal final answer. Returns true iff anything was committed
-	 *  as a real message over the preview's lifetime. Never rejects. */
-	function finalize(final = false): Promise<boolean> {
+	 *  true for a normal final answer. Never rejects. */
+	function finalize(final = false): Promise<void> {
 		const c = current;
-		if (!c) return Promise.resolve(false);
+		if (!c) return Promise.resolve();
 		if (c.flushTimer) {
 			clearTimeout(c.flushTimer);
 			c.flushTimer = undefined;
@@ -142,7 +135,7 @@ export function createPreview(api: PreviewApi) {
 		// Detach synchronously so any queued flush for this state no-ops and a
 		// subsequent assistant message starts a fresh preview.
 		current = undefined;
-		return enqueue(() => finalizeState(c, final)).catch(() => c.published);
+		return enqueue(() => finalizeState(c, final)).catch(() => {});
 	}
 
 	return { update, finalize };

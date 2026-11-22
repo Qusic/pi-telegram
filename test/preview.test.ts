@@ -22,7 +22,7 @@ test("oversized preview chunks are silent and only the final tail notifies", asy
 	const answer = `${"x".repeat(MAX_MESSAGE_LENGTH)}\nfinal tail`;
 
 	preview.update(100, answer);
-	assert.equal(await preview.finalize(true), true);
+	await preview.finalize(true);
 
 	assert.equal(sent.length, 2);
 	assert.deepEqual(
