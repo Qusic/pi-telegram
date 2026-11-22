@@ -19,7 +19,7 @@ jobs:
       cancel-in-progress: true
     steps:
       - uses: actions/checkout@v7
-      - uses: pnpm/setup@v2
+      - uses: pnpm/setup@v3
         with:
           version: latest
           runtime: node@lts
@@ -41,7 +41,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
-      - uses: pnpm/setup@v2
+      - uses: pnpm/setup@v3
         with:
           version: latest
           runtime: node@lts
