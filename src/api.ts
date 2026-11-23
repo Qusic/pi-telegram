@@ -1,12 +1,10 @@
 // Telegram Bot API HTTP client.
 
-import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { homedir } from "node:os";
-import { basename, join } from "node:path";
+import { mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { basename, join, sep } from "node:path";
 import type { createConfig } from "./config.ts";
 import { guessMediaType, sanitizeFileName } from "./utils.ts";
-
-const TEMP_DIR = join(homedir(), ".pi", "agent", "tmp", "telegram");
 
 /** Telegram's per-message character budget. */
 export const MAX_MESSAGE_LENGTH = 32768;
@@ -137,12 +135,11 @@ export function createApi(config: Awaited<ReturnType<typeof createConfig>>) {
 
 	async function download(fileId: string, suggestedName: string): Promise<string> {
 		const file = await call<TelegramGetFileResult>("getFile", { file_id: fileId });
-		await mkdir(TEMP_DIR, { recursive: true });
-		const targetPath = join(TEMP_DIR, `${Date.now()}-${sanitizeFileName(suggestedName)}`);
 		const response = await fetch(fileBaseUrl + file.file_path);
 		if (!response.ok) throw new Error(`Failed to download Telegram file: ${response.status}`);
-		const arrayBuffer = await response.arrayBuffer();
-		await writeFile(targetPath, Buffer.from(arrayBuffer));
+		// A private directory per file keeps the name as sent, without collisions.
+		const targetPath = join(await mkdtemp(`${tmpdir()}${sep}`), sanitizeFileName(suggestedName));
+		await writeFile(targetPath, Buffer.from(await response.arrayBuffer()));
 		return targetPath;
 	}
 
