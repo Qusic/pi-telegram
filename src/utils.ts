@@ -5,8 +5,10 @@ import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { AssistantMessage } from "@earendil-works/pi-ai";
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 
+/** Make a file name safe as a single path segment on any OS, keeping other
+ *  characters (e.g. CJK) so the name stays readable. */
 export function sanitizeFileName(name: string): string {
-	return name.replace(/[^a-zA-Z0-9._-]+/g, "_");
+	return name.replace(/[\p{Cc}<>:"/\\|?*]+/gu, "_");
 }
 
 export function guessExtensionFromMime(mimeType: string | undefined, fallback: string): string {
