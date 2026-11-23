@@ -1,4 +1,7 @@
 import assert from "node:assert/strict";
+import { readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { basename, dirname } from "node:path";
 import { test } from "node:test";
 import type { Message } from "@earendil-works/pi-ai";
 import { getCurrentSystemPrompt } from "@earendil-works/pi-ai/utils/transcript";
@@ -44,6 +47,26 @@ test("real pi process discovers and expands skills from Telegram", async (t) => 
 	assert.match(expandedSkill, /<skill name="fixture-skill"/);
 	assert.match(expandedSkill, /FIXTURE_SKILL_MARKER/);
 	assert.match(expandedSkill, /user arguments$/);
+});
+
+test("a document from Telegram reaches the model as a file in its own temp directory", async (t) => {
+	const harness = await createPiProcessHarness({ responses: [{ content: "ok" }] });
+	t.after(async () => {
+		await harness.dispose();
+		assert.deepEqual(harness.extensionErrors, []);
+	});
+
+	harness.telegram.receiveDocument({ fileName: "报告 v2.pdf", content: "PDF_BYTES", caption: "summarize this" });
+	const [call] = await harness.waitForFauxCalls(1);
+	await harness.waitForIdle();
+
+	const prompt = userText(call?.messages.at(-1));
+	const path = prompt?.match(/^summarize this\n\nAttachments saved locally:\n- (.+)$/)?.[1];
+	assert.ok(path, `unexpected prompt: ${prompt}`);
+	t.after(() => rm(dirname(path), { recursive: true, force: true }));
+	assert.equal(dirname(dirname(path)), tmpdir());
+	assert.equal(basename(path), "报告 v2.pdf");
+	assert.equal(await readFile(path, "utf8"), "PDF_BYTES");
 });
 
 test("real pi process rebinds Telegram after /new replaces the session", async (t) => {

@@ -80,6 +80,8 @@ class FakeTelegramServer {
 	#calls: TelegramHttpCall[] = [];
 	#texts: SentTelegramText[] = [];
 	#attachments: SentTelegramAttachment[] = [];
+	/** Contents of files users sent, by file_id (which doubles as file_path). */
+	#files = new Map<string, string>();
 	#nextUpdateId = 1;
 	#nextIncomingMessageId = 1;
 	#nextOutgoingMessageId = 1;
@@ -105,13 +107,30 @@ class FakeTelegramServer {
 	}
 
 	receiveText(text: string, options: { chatId?: number; userId?: number } = {}): number {
-		const chatId = options.chatId ?? 100;
-		const userId = options.userId ?? 42;
+		return this.#receive({ text }, options);
+	}
+
+	receiveDocument(
+		document: { fileName: string; content: string; caption: string },
+		options: { chatId?: number; userId?: number } = {},
+	): number {
+		const fileId = `file-${this.#files.size + 1}`;
+		this.#files.set(fileId, document.content);
+		return this.#receive(
+			{ caption: document.caption, document: { file_id: fileId, file_name: document.fileName } },
+			options,
+		);
+	}
+
+	#receive(
+		fields: Pick<TelegramMessage, "text" | "caption" | "document">,
+		options: { chatId?: number; userId?: number },
+	): number {
 		const message: TelegramMessage = {
 			message_id: this.#nextIncomingMessageId++,
-			chat: { id: chatId, type: "private" },
-			from: { id: userId, is_bot: false, first_name: "Test" },
-			text,
+			chat: { id: options.chatId ?? 100, type: "private" },
+			from: { id: options.userId ?? 42, is_bot: false, first_name: "Test" },
+			...fields,
 		};
 		const updateId = this.#nextUpdateId++;
 		this.#updates.push({ update_id: updateId, message });
@@ -185,6 +204,13 @@ class FakeTelegramServer {
 		try {
 			const url = new URL(request.url ?? "/", this.apiRoot);
 			this.#paths.push(url.pathname);
+			const fileId = /^\/file\/bot[^/]+\/(.+)$/.exec(url.pathname)?.[1];
+			if (fileId !== undefined) {
+				const content = this.#files.get(fileId);
+				if (content === undefined) response.writeHead(404).end();
+				else response.end(content);
+				return;
+			}
 			const match = /^\/bot([^/]+)\/([^/]+)$/.exec(url.pathname);
 			if (!match) {
 				writeJson(response, { ok: false, description: `Unexpected Telegram path: ${url.pathname}` }, 404);
@@ -201,6 +227,9 @@ class FakeTelegramServer {
 			switch (method) {
 				case "getUpdates":
 					this.#getUpdates(response, body);
+					return;
+				case "getFile":
+					apiResult(response, { file_path: String(body.file_id) });
 					return;
 				case "setMyCommands":
 				case "sendChatAction":

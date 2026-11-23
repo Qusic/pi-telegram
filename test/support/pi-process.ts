@@ -241,7 +241,13 @@ type PiProcessHarnessOptions = FauxScript & {
 interface PiProcessHarness {
 	readonly telegram: Pick<
 		FakeTelegramServer,
-		"getAttachments" | "getMessages" | "getSentTextCount" | "receiveText" | "waitForText" | "waitForUpdateConsumed"
+		| "getAttachments"
+		| "getMessages"
+		| "getSentTextCount"
+		| "receiveDocument"
+		| "receiveText"
+		| "waitForText"
+		| "waitForUpdateConsumed"
 	>;
 	readonly extensionErrors: readonly ExtensionErrorRecord[];
 	/** The pi session's working directory. */
@@ -389,6 +395,7 @@ export async function createPiProcessHarness(options: PiProcessHarnessOptions): 
 		getAttachments: () => telegram.getAttachments(),
 		getMessages: () => telegram.getMessages(),
 		getSentTextCount: () => telegram.getSentTextCount(),
+		receiveDocument: (document, receiveOptions) => telegram.receiveDocument(document, receiveOptions),
 		receiveText: (text, receiveOptions) => telegram.receiveText(text, receiveOptions),
 		waitForText: (predicate, timeout) => telegram.waitForText(predicate, timeout),
 		waitForUpdateConsumed: (updateId, timeout) => telegram.waitForUpdateConsumed(updateId, timeout),
